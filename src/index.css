@@ -4,101 +4,80 @@
 
 @layer base {
   :root {
-    /* Light cream/sage dashboard theme */
-    --background: 80 25% 95%;
-    --foreground: 160 30% 15%;
-    
-    --card: 0 0% 100%;
-    --card-foreground: 160 30% 15%;
-    
-    --popover: 0 0% 100%;
-    --popover-foreground: 160 30% 15%;
-    
-    --primary: 160 45% 22%;
-    --primary-foreground: 0 0% 100%;
-    
-    --secondary: 80 20% 90%;
-    --secondary-foreground: 160 30% 15%;
-    
-    --muted: 80 15% 91%;
-    --muted-foreground: 160 10% 45%;
-    
-    --accent: 162 55% 38%;
-    --accent-foreground: 0 0% 100%;
-    
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
-    
-    --success: 152 55% 42%;
-    --success-foreground: 0 0% 100%;
-    
-    --warning: 40 95% 50%;
-    --warning-foreground: 160 30% 15%;
-    
-    --border: 80 15% 87%;
-    --input: 80 15% 87%;
-    --ring: 160 45% 22%;
-    
+    --background: 0.97 0.008 175;
+    --foreground: 0.25 0.035 175;
+    --card: 0.99 0.004 175;
+    --popover: 0.99 0.004 175;
+    --primary: 0.45 0.09 175;
+    --primary-foreground: 0.99 0.004 175;
+    --secondary: 0.93 0.018 175;
+    --muted: 0.94 0.012 175;
+    --muted-foreground: 0.46 0.025 175;
+    --accent: 0.9 0.045 175;
+    --accent-foreground: 0.25 0.035 175;
+    --destructive: 0.52 0.18 25;
+    --destructive-foreground: 0.99 0.004 175;
+    --success: 0.45 0.09 160;
+    --success-foreground: 0.99 0.004 175;
+    --warning: 0.83 0.14 80;
+    --warning-foreground: 0.25 0.035 175;
+    --border: 0.82 0.02 175;
+    --input: 0.78 0.025 175;
+    --ring: 0.45 0.09 175;
+    --card-foreground: 0.25 0.035 175;
+    --popover-foreground: 0.25 0.035 175;
+    --secondary-foreground: 0.25 0.035 175;
+    --sidebar-background: 0.2 0.02 175;
+    --sidebar-foreground: 0.96 0.008 175;
+    --sidebar-primary: 0.76 0.12 175;
+    --sidebar-primary-foreground: 0.2 0.02 175;
+    --sidebar-accent: 0.35 0.055 175;
+    --sidebar-accent-foreground: 0.96 0.008 175;
+    --sidebar-border: 0.43 0.025 175;
+    --sidebar-ring: 0.76 0.12 175;
+    --nav-bg: 0.2 0.02 175;
+    --nav-foreground: 0.96 0.008 175;
+    --stat-positive: 0.45 0.09 160;
+    --stat-negative: 0.52 0.18 25;
     --radius: 0.75rem;
-    
-    --sidebar-background: 160 45% 18%;
-    --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 162 55% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 160 35% 25%;
-    --sidebar-accent-foreground: 0 0% 96%;
-    --sidebar-border: 160 30% 25%;
-    --sidebar-ring: 162 55% 50%;
-
-    /* Custom dashboard tokens */
-    --nav-bg: 160 45% 18%;
-    --nav-foreground: 0 0% 100%;
-    --stat-positive: 152 55% 42%;
-    --stat-negative: 0 72% 55%;
   }
 
   .dark {
-    --background: 160 20% 8%;
-    --foreground: 0 0% 96%;
-    
-    --card: 160 20% 12%;
-    --card-foreground: 0 0% 96%;
-    
-    --popover: 160 20% 14%;
-    --popover-foreground: 0 0% 96%;
-    
-    --primary: 162 55% 50%;
-    --primary-foreground: 160 30% 8%;
-    
-    --secondary: 160 20% 16%;
-    --secondary-foreground: 0 0% 96%;
-    
-    --muted: 160 15% 14%;
-    --muted-foreground: 160 10% 50%;
-    
-    --accent: 162 55% 45%;
-    --accent-foreground: 160 30% 8%;
-    
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
-    
-    --border: 160 15% 20%;
-    --input: 160 20% 16%;
-    --ring: 162 55% 50%;
-    
-    --sidebar-background: 160 30% 10%;
-    --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 162 55% 50%;
-    --sidebar-primary-foreground: 160 30% 8%;
-    --sidebar-accent: 160 25% 18%;
-    --sidebar-accent-foreground: 0 0% 96%;
-    --sidebar-border: 160 20% 20%;
-    --sidebar-ring: 162 55% 50%;
-
-    --nav-bg: 160 30% 10%;
-    --nav-foreground: 0 0% 96%;
-    --stat-positive: 162 55% 50%;
-    --stat-negative: 0 72% 55%;
+    --background: 0.2 0.02 175;
+    --foreground: 0.96 0.008 175;
+    --card: 0.25 0.023 175;
+    --popover: 0.28 0.025 175;
+    --primary: 0.76 0.12 175;
+    --primary-foreground: 0.2 0.02 175;
+    --secondary: 0.31 0.024 175;
+    --muted: 0.29 0.02 175;
+    --muted-foreground: 0.74 0.025 175;
+    --accent: 0.35 0.055 175;
+    --accent-foreground: 0.96 0.008 175;
+    --destructive: 0.7 0.15 25;
+    --destructive-foreground: 0.2 0.02 175;
+    --success: 0.76 0.12 160;
+    --success-foreground: 0.2 0.02 175;
+    --warning: 0.83 0.14 80;
+    --warning-foreground: 0.2 0.02 175;
+    --border: 0.43 0.025 175;
+    --input: 0.48 0.025 175;
+    --ring: 0.76 0.12 175;
+    --card-foreground: 0.96 0.008 175;
+    --popover-foreground: 0.96 0.008 175;
+    --secondary-foreground: 0.96 0.008 175;
+    --sidebar-background: 0.2 0.02 175;
+    --sidebar-foreground: 0.96 0.008 175;
+    --sidebar-primary: 0.76 0.12 175;
+    --sidebar-primary-foreground: 0.2 0.02 175;
+    --sidebar-accent: 0.35 0.055 175;
+    --sidebar-accent-foreground: 0.96 0.008 175;
+    --sidebar-border: 0.43 0.025 175;
+    --sidebar-ring: 0.76 0.12 175;
+    --nav-bg: 0.2 0.02 175;
+    --nav-foreground: 0.96 0.008 175;
+    --stat-positive: 0.76 0.12 160;
+    --stat-negative: 0.7 0.15 25;
   }
 }
 
@@ -150,8 +129,8 @@
 
   /* Dashboard nav */
   .dashboard-nav {
-    background: hsl(var(--nav-bg));
-    color: hsl(var(--nav-foreground));
+    background: oklch(var(--nav-bg));
+    color: oklch(var(--nav-foreground));
   }
   
   /* Dashboard card */

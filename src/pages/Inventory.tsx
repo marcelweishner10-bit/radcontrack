@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import bthdcLogo from '@/assets/bthdc-logo.png';
+import { TrackRadBrand } from '@/components/TrackRadBrand';
 
 type StockItem = { id: string; name: string; unit: string; opening: number; received: number; used: number; adjusted?: number; minimum: number };
 type IssueEntry = { id: string; date: string; item: string; itemName: string; unit: string; quantity: number; expectedBalance: number; recordedBalance: number | null; issuedBy: string; signed: boolean };
@@ -107,7 +107,7 @@ export default function Inventory() {
   return <div className="min-h-screen bg-background">
     <nav className="dashboard-nav sticky top-0 z-50 shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-3"><img src={bthdcLogo} alt="BTHDC" className="h-9 w-9 rounded-lg bg-white/10 p-0.5" /><div><p className="text-white font-bold leading-tight">Radiology Operations & Inventory</p><p className="text-white/60 text-xs">Store & Stock</p></div></div>
+        <div className="flex items-center gap-3"><TrackRadBrand /><div><p className="text-white font-bold leading-tight">TrackRad</p><p className="text-white/60 text-xs">Store & Stock</p></div></div>
         <div className="flex items-center gap-2"><Button asChild variant="ghost" className="text-white hover:bg-white/10 hover:text-white"><Link to="/"><ArrowLeft className="h-4 w-4 mr-2" />Daily Log</Link></Button><Button asChild variant="ghost" className="text-white hover:bg-white/10 hover:text-white"><Link to="/stock">Shared stock</Link></Button><Button asChild variant="ghost" className="text-white hover:bg-white/10 hover:text-white"><Link to="/usage">Reports</Link></Button></div>
       </div>
     </nav>

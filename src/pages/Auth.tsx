@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import bthdcLogo from '@/assets/bthdc-logo.png';
+import { TrackRadBrand } from '@/components/TrackRadBrand';
 import { Loader2 } from 'lucide-react';
 
 const Auth = () => {
@@ -37,8 +37,8 @@ const Auth = () => {
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="dashboard-card p-8 w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3">
-          <img src={bthdcLogo} alt="BTHDC Logo" className="h-14 w-14 object-contain rounded-xl bg-primary/10 p-1.5" />
-          <h1 className="text-xl font-bold text-foreground">Radiology Operations & Inventory</h1>
+          <h1><TrackRadBrand large /></h1>
+          <p className="text-sm text-foreground">Radiology operations & inventory</p>
           <p className="text-sm text-muted-foreground">Sign in to continue</p>
         </div>
 

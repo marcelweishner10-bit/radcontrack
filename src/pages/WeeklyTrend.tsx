@@ -234,10 +234,10 @@ const WeeklyTrend = () => {
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      borderColor: 'hsl(var(--border))',
+                      backgroundColor: 'oklch(var(--card))',
+                      borderColor: 'oklch(var(--border))',
                       borderRadius: '8px',
-                      color: 'hsl(var(--foreground))',
+                      color: 'oklch(var(--foreground))',
                     }}
                   />
                   <Legend />
@@ -267,10 +267,10 @@ const WeeklyTrend = () => {
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      borderColor: 'hsl(var(--border))',
+                      backgroundColor: 'oklch(var(--card))',
+                      borderColor: 'oklch(var(--border))',
                       borderRadius: '8px',
-                      color: 'hsl(var(--foreground))',
+                      color: 'oklch(var(--foreground))',
                     }}
                   />
                   <Legend />
