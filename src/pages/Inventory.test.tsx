@@ -1,0 +1,22 @@
+import {render,screen,fireEvent,cleanup} from '@testing-library/react';
+import {MemoryRouter} from 'react-router-dom';
+import {it,expect,vi,afterEach} from 'vitest';
+import Inventory from './Inventory';
+vi.mock('@/hooks/useAuth',()=>({useAuth:()=>({user:{email:'staff@example.com'},canManageStock:false,canManageStaff:false,signOut:vi.fn()})}));
+vi.mock('@/hooks/useTheme',()=>({useTheme:()=>({theme:'dark',toggleTheme:vi.fn()})}));
+afterEach(()=>{cleanup();localStorage.clear();vi.restoreAllMocks();});
+it('shows saved browser records without modifying them or exposing stock entry controls',()=>{
+ const stock=JSON.stringify([{id:'gastrolux',name:'Gastrolux contrast',unit:'bottles',opening:5,received:2,used:1,minimum:1}]);
+ const issues=JSON.stringify([{id:'old-issue',date:'2026-09-29',itemName:'Gastrolux contrast',unit:'bottles',quantity:1,expectedBalance:6,recordedBalance:null,issuedBy:'George',signed:true}]);
+ localStorage.setItem('radcontrack-inventory',stock);localStorage.setItem('radcontrack-issue-register',issues);
+ const writes=vi.spyOn(Storage.prototype,'setItem');
+ render(<MemoryRouter><Inventory /></MemoryRouter>);
+ expect(screen.getByRole('heading',{name:'Old records — reference only'})).toBeInTheDocument();
+ expect(screen.getByText('George')).toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'Save entry'})).not.toBeInTheDocument();
+ expect(screen.queryByLabelText('Gastrolux contrast opening stock')).not.toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText('View earlier film date'),{target:{value:'2026-09-29'}});
+ expect(writes).not.toHaveBeenCalled();
+ expect(localStorage.getItem('radcontrack-inventory')).toBe(stock);
+ expect(localStorage.getItem('radcontrack-issue-register')).toBe(issues);
+});

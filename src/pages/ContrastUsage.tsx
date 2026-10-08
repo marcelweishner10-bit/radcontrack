@@ -162,7 +162,7 @@ const ContrastUsage = () => {
       <AppNavigation />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        <div><h1 className="text-2xl font-bold">Reports and reconciliation</h1><div className="flex flex-wrap gap-4 mt-2 text-sm"><NavLink className="text-primary underline" to="/stock/balances">Current balances</NavLink><NavLink className="text-primary underline" to="/stock/history">Movement history</NavLink><NavLink className="text-primary underline" to="/weekly-trend">Contrast trends</NavLink><NavLink className="text-primary underline" to="/inventory">Earlier browser stock records</NavLink></div></div>
+        <div><h1 className="text-2xl font-bold">Reports and reconciliation</h1><div className="flex flex-wrap gap-4 mt-2 text-sm"><NavLink className="text-primary underline" to="/stock/balances">Current balances</NavLink><NavLink className="text-primary underline" to="/stock/history">Movement history</NavLink><NavLink className="text-primary underline" to="/weekly-trend">Contrast trends</NavLink><NavLink className="text-primary underline" to="/inventory">Old records — reference only</NavLink></div></div>
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
