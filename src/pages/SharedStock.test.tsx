@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SharedStock from './SharedStock';
 import { supabase } from '@/integrations/supabase/client';
 
-const access = vi.hoisted(() => ({ canManageStock: false, canManageStaff: false, user: { id: 'honey' }, movements: [] as Record<string, unknown>[], roomMovements: [] as Record<string, unknown>[] }));
+const access = vi.hoisted(() => ({ canManageStock: false, canManageStaff: false, user: { id: 'honey', email:'honey.onabanjo@bthdc.com.ng' }, movements: [] as Record<string, unknown>[], roomMovements: [] as Record<string, unknown>[] }));
+vi.mock('@/lib/stockEntryValidation',async importOriginal => ({...await importOriginal<typeof import('@/lib/stockEntryValidation')>(),lagosToday:()=> '2026-10-08'}));
 vi.mock('@/hooks/useTheme', () => ({ useTheme: () => ({theme:'dark',toggleTheme:vi.fn()}) }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ ...access, loading: false }) }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {
@@ -14,10 +15,28 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: {
     return query;
   }, rpc: vi.fn(),
 } }));
-beforeEach(() => { vi.stubGlobal('crypto', { randomUUID: () => 'test-line' }); access.movements = []; access.roomMovements = []; vi.mocked(supabase.rpc).mockReset(); });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+beforeEach(() => { vi.stubGlobal('crypto', { randomUUID: () => 'test-line' }); vi.spyOn(window,'confirm').mockReturnValue(true); access.movements = []; access.roomMovements = []; vi.mocked(supabase.rpc).mockReset(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('shared stock access', () => {
+  it('blocks staff correcting yesterday even for their own pick',async()=>{
+    access.canManageStock=false;access.canManageStaff=false;
+    access.movements=[{id:'old-own',item_id:'gastrolux',movement_type:'issue',occurred_on:'2026-10-07',quantity:100,recorded_by:'honey'}];
+    render(<MemoryRouter><SharedStock view="pick" /></MemoryRouter>);
+    await screen.findByText('Gastrolux');
+    expect(screen.queryByRole('button',{name:'Edit pick'})).not.toBeInTheDocument();
+  });
+  it('warns Honey and leaves an old correction unsaved when she cancels',async()=>{
+    access.canManageStock=true;access.canManageStaff=false;
+    access.movements=[{id:'old',item_id:'gastrolux',movement_type:'issue',occurred_on:'2026-10-07',quantity:100,version:1,recipient_name:'Honey',recorded_by:'honey'}];
+    vi.mocked(window.confirm).mockReturnValue(false);
+    render(<MemoryRouter><SharedStock view="pick" /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button',{name:'Edit pick'}));
+    fireEvent.change(screen.getByLabelText('Reason for correction'),{target:{value:'Wrong amount'}});
+    fireEvent.click(screen.getByRole('button',{name:'Save correction'}));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('balances carried forward'));
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
   it('corrects a saved pick directly on the pick page with its version and reason', async () => {
     access.canManageStock=false; access.canManageStaff=false;
     access.movements=[{id:'pick-own',item_id:'gastrolux',movement_type:'issue',quantity:100,occurred_on:'2026-10-08',recipient_name:'Honey',version:2,recorded_by:'honey',destination:'CT',shift:'morning'}];

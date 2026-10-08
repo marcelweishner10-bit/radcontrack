@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { STOCK_ROOMS, STOCK_SHIFTS, roomUnit, toRoomUnits, bottleCapacity, stockAmount } from '@/lib/roomStock';
 import { useAuth } from '@/hooks/useAuth';
+import { lagosToday, stockEntryError, PAST_PICK_WARNING } from '@/lib/stockEntryValidation';
 import { AppNavigation, StockNavigation } from '@/components/AppNavigation';
 
 type Item = Tables<'stock_items'>;
@@ -27,6 +28,8 @@ const viewHelp:Record<StockView,string> = {pick:'Record items taken from departm
 
 export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const { user, canManageStock, canManageStaff, loading: accessLoading } = useAuth();
+  const canBackdatePicks = canManageStock && user?.email?.toLowerCase() === 'honey.onabanjo@bthdc.com.ng';
+  const today = lagosToday();
   const [items, setItems] = useState<Item[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [roomStock, setRoomStock] = useState<Tables<'room_stock'>[]>([]);
@@ -103,14 +106,11 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const save = async () => {
     setError(''); setNotice('');
     if ((type === 'receipt' || type === 'opening') && !canManageStock) { setError('Only the administrator can manage store receipts and counts.'); return; }
-    const isCount = type === 'opening' || type === 'room_count';
-    const chosen = selectedLines.filter((line, index) => line.item && lines[index].quantity.trim() !== '' && (Number.isInteger(line.quantity) || (bottleCapacity(line.item.id) > 0 && Number.isFinite(line.quantity) && Math.abs(line.quantity * 100 - Math.round(line.quantity * 100)) < 0.00001)) && (isCount ? line.quantity >= 0 : line.quantity > 0));
-    if (!date || recipient.trim().length < 2 || chosen.length !== lines.length ||
-        new Set(chosen.map(line => line.item!.id)).size !== chosen.length ||
-        ((type === 'issue' || type === 'room_count') && !destination) || ((type === 'issue' || type === 'room_count') && !shift) || !confirmed) {
-      setError('Enter a date, your name and quantities for distinct items. All contrast uses ml; films and CDs use individual counts. Counts can be zero. Daily picks need a room and shift; confirm before saving.');
-      return;
-    }
+    const validationError = stockEntryError({type,date,today,recipient,destination,shift,confirmed,canBackdatePicks,
+      lines:lines.map((line,index)=>({...line,item:selectedLines[index].item}))});
+    if (validationError) { setError(validationError); return; }
+    if (type === 'issue' && date < today && !window.confirm(PAST_PICK_WARNING)) return;
+    const chosen = selectedLines;
     setSaving(true);
     const { error: saveError } = await supabase.rpc('move_room_stock_units', {
       p_type: type,
@@ -138,6 +138,10 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const editReceipt = async (remove: boolean) => {
     if (!editing || (remove && !deleteConfirmed)) return;
     if (editReason.trim().length < 3) { setError('Enter the reason for this correction.'); return; }
+    if (editing.movement_type === 'issue' && (editing.occurred_on < today || editDate < today)) {
+      if (!canBackdatePicks) { setError('Only Honey can correct or remove a pick for a past date. Ask Honey to help.'); return; }
+      if (!window.confirm(PAST_PICK_WARNING)) return;
+    }
     setSaving(true); setError(''); setNotice('');
     const result = await supabase.rpc('correct_stock_movement', { p_source: editing.source, p_id: editing.id, p_version: editing.version, p_quantity: Number(editQuantity), p_date: editDate, p_staff: editRecipient, p_reference: editReference || null, p_reason: editReason.trim(), p_delete: remove });
     setSaving(false);
@@ -168,13 +172,14 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
         {view === 'count' && <div className="flex flex-wrap gap-2">{(['opening','room_count'] as const).filter(option=>canManageStock || option==='room_count').map(option => <Button key={option} type="button" variant={type === option ? 'default' : 'outline'} onClick={() => { setType(option); setConfirmed(false); setDate(format(new Date(), 'yyyy-MM-dd')); }}>{option === 'opening' ? 'In department stock' : 'In a room'}</Button>)}</div>}
         <p className="text-sm text-muted-foreground">Use ml for all contrast, individual films and CD pieces, and packs for gloves. 1 film pack = 100 films. {canManageStock ? 'Your stock-editor login can manage received stock.' : 'Main store collections are managed by the authorised stock editor.'}</p>
         <div className="grid md:grid-cols-3 gap-4">
-          <div><Label htmlFor="stock-date">Date</Label><Input id="stock-date" type="date" value={date} onChange={event => setDate(event.target.value)} /></div>
+          <div><Label htmlFor="stock-date">Date</Label><Input id="stock-date" type="date" min={type === 'issue' && !canBackdatePicks ? today : undefined} max={today} value={date} onChange={event => setDate(event.target.value)} /></div>
           <div><Label htmlFor="stock-recipient">{type === 'receipt' ? 'Received by' : type === 'issue' ? 'Picked by' : 'Counted by'}</Label><Input id="stock-recipient" value={recipient} onChange={event => setRecipient(event.target.value)} placeholder="Staff full name" /></div>
           <div><Label htmlFor="stock-reference">Request or receipt reference (optional)</Label><Input id="stock-reference" value={reference} onChange={event => setReference(event.target.value)} placeholder="For example, STR-202609-00110" /></div>
         </div>
         {(type === 'issue' || type === 'room_count') && <div className="grid sm:grid-cols-2 gap-4 max-w-xl"><div><Label>Room</Label><Select value={destination} onValueChange={setDestination}><SelectTrigger aria-label="Room"><SelectValue placeholder="Choose room" /></SelectTrigger><SelectContent>{STOCK_ROOMS.map(room => <SelectItem key={room} value={room}>{room}</SelectItem>)}</SelectContent></Select></div>{(type === 'issue' || type === 'room_count') && <div><Label>{type === 'issue' ? 'Shift receiving this pick' : 'Shift of this count'}</Label><Select value={shift} onValueChange={setShift}><SelectTrigger aria-label="Shift receiving this pick"><SelectValue placeholder="Choose shift" /></SelectTrigger><SelectContent>{STOCK_SHIFTS.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>}</div>}
         {(type === 'opening' || type === 'room_count') && <p className="text-sm text-amber-800 bg-amber-50 rounded-lg p-3">Count what is physically here now, including any recent collections. This replaces the recorded balance at this location; it does not add more stock. Room film counts use individual films, not packs.</p>}
         {type === 'receipt' && <p className="text-sm text-muted-foreground">You can save a collection before counting existing stock. The full balance will remain unconfirmed until counted. Do not add a collection again if a later physical count already included it.</p>}
+        {type === 'issue' && <p className="text-sm text-muted-foreground">{canBackdatePicks ? 'Past-date picks require confirmation because they change carried-forward balances.' : 'Record room picks for today. Ask Honey to record or correct a pick for a past date.'}</p>}
         <div className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-semibold">Items</h4><Button type="button" variant="outline" size="sm" onClick={() => setLines(current => [...current, newLine()])}><Plus className="w-4 h-4 mr-1" />Add item</Button></div>
           {lines.map((line, index) => { const item=items.find(candidate => candidate.id === line.itemId); const quantity=Number(line.quantity) || 0; return <div key={line.key} className="grid sm:grid-cols-[minmax(0,1fr)_9rem_10rem_2.5rem] gap-3 items-end rounded-lg border p-3">
             <div><Label>Item {index + 1}</Label><Select value={line.itemId} onValueChange={value => setLine(line.key, { itemId: value })}><SelectTrigger aria-label={`Item ${index + 1}`}><SelectValue placeholder="Choose item" /></SelectTrigger><SelectContent>{items.map(candidate => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.unit})</SelectItem>)}</SelectContent></Select></div>
@@ -227,7 +232,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
         <div className="divide-y">{movements.map(row => <article key={row.id} className="p-5 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h4 className="font-semibold">{items.find(item => item.id === row.item_id)?.name || row.item_id}</h4><p className="text-sm text-muted-foreground">{row.occurred_on} · {row.voided_at ? 'Deleted entry' : typeLabels[row.movement_type as MovementType]}</p></div>
-            {!row.voided_at && (canManageStock || (row.movement_type === 'issue' && row.recorded_by === user?.id)) && <Button variant="outline" size="sm" disabled={saving || loading} onClick={() => beginCorrection({ ...row, source: 'store' })}>{view==='pick'?'Edit pick':row.movement_type === 'opening' ? 'Correct count' : 'Edit / delete'}</Button>}
+            {!row.voided_at && (row.movement_type === 'issue' ? (row.occurred_on < today ? canBackdatePicks : canManageStock || row.recorded_by === user?.id) : canManageStock) && <Button variant="outline" size="sm" disabled={saving || loading} onClick={() => beginCorrection({ ...row, source: 'store' })}>{view==='pick'?'Edit pick':row.movement_type === 'opening' ? 'Correct count' : 'Edit / delete'}</Button>}
           </div>
           <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
             <div><dt className="text-muted-foreground">Quantity</dt><dd>{row.quantity} {items.find(item => item.id === row.item_id)?.unit}</dd></div>
