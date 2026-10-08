@@ -13,6 +13,16 @@ beforeEach(()=>{
 afterEach(cleanup);
 const setup=async()=>{render(<MemoryRouter><UnifiedShift date="2026-10-07" room="CT" shift="morning" onDirtyChange={()=>{}}/></MemoryRouter>);await screen.findByLabelText('CT Contrast Used for patients (ml)');};
 describe('connected shift form',()=>{
+ it('shows initial pickups and top-ups separately while keeping the total and consumption calculation',async()=>{
+  mock.rpc.mockImplementation(async(name:string)=>({error:null,data:name==='shift_context'?{token:'one',items:[{id:'ct_contrast',name:'CT Contrast',unit:'ml',opening:50,received:300,initial_received:200,topups:100,adjustment:0,remaining:350,known:true}]}:1}));
+  await setup();
+  expect(screen.getByRole('row',{name:'Initial Stock Received 200 2'})).toBeInTheDocument();
+  expect(screen.getByRole('row',{name:'Additional Stock Received / Top-ups 100 1'})).toBeInTheDocument();
+  expect(screen.getByRole('row',{name:'Total Qty Available 350 3.5'})).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('CT Contrast Used for patients (ml)'),{target:{value:'70'}});
+  fireEvent.change(screen.getByLabelText('CT Contrast Wastage (ml)'),{target:{value:'10'}});
+  expect(screen.getByText('270 ml')).toBeInTheDocument();
+ });
  it('shows one contrast entry and previews actual use plus wastage',async()=>{
   await setup();
   fireEvent.change(screen.getByLabelText('CT Contrast Used for patients (ml)'),{target:{value:'70'}});
