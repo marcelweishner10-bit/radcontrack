@@ -175,7 +175,7 @@ describe('shared stock access', () => {
     access.canManageStock = false; access.canManageStaff = false;
     render(<MemoryRouter><SharedStock view="balances" /></MemoryRouter>);
     await screen.findByText('Unconfirmed');
-    expect(screen.getAllByText('Awaiting count')).toHaveLength(5);
+    expect(screen.getByText('0 (tracked balance)')).toBeInTheDocument();
     expect(screen.queryByRole('button',{name:'Save room pick'})).not.toBeInTheDocument();
   });
 });

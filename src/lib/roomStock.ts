@@ -1,4 +1,6 @@
 export const STOCK_ROOMS = ['X-ray', 'CT', 'MRI', 'Fluoroscopy', 'Mammography'] as const;
+export const STOCK_LOCATIONS = [...STOCK_ROOMS, 'Shared'] as const;
+export const stockLocation = (id:string,room:string) => ['ct_contrast','mri_contrast'].includes(id)?room:'Shared';
 export const STOCK_SHIFTS = ['morning', 'afternoon', 'night'] as const;
 export const isFilm = (id: string) => id === 'film1714' || id === 'film1210';
 export const bottleCapacity = (id: string) => id === 'mri_contrast' ? 15 : ['ct_contrast', 'gastrolux'].includes(id) ? 100 : 0;

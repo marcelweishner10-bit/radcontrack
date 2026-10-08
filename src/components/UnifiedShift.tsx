@@ -106,7 +106,7 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
    const items=context.items.filter(i=>(filter as (id:string)=>boolean)(i.id));if(!items.length)return null;
    const estimated=title!=='Contrast';
    const splitPicks=false;
-   return <section key={title as string} className="border-t pt-5 space-y-4"><h2 className="text-lg font-bold">{title as string}</h2>
+   return <section key={title as string} className="border-t pt-5 space-y-4"><h2 className="text-lg font-bold">{title as string}</h2><p className="text-sm text-muted-foreground">Films and other consumables use Shared stock across all rooms. CT and MRI contrast remain room-specific. Shared balances include usage recorded by every room; this table records only this room’s usage.</p>
     {title==='Films printed'&&<p className="text-sm text-muted-foreground">Include reprints in films printed. Count patients separately for each size; do not count the same patient again for a reprint.</p>}
     {estimated&&<p className="text-sm text-muted-foreground">Calculated automatically from recorded pickups and usage. The balance carries into the next shift. Include reprints in usage.</p>}
     {splitPicks&&<p className="text-sm text-muted-foreground">Initial stock received is the first pickup for each item in this shift. Additional stock received / Top-ups adds all later pickups. Carried over is stock left from earlier shifts.</p>}
