@@ -24,6 +24,7 @@ export function auditChanges(before:Record<string,Json>,after:Record<string,Json
     }
   }
   if(!before.voided_at && after.voided_at) changes.push({label:'Status',before:'Active',after:'Deleted'});
+  if(JSON.stringify(before.data)!==JSON.stringify(after.data))changes.push({label:'Clinical record',before:textValue(before.data),after:textValue(after.data)});
   return changes;
 }
 

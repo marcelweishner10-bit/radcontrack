@@ -6,10 +6,14 @@ import { Input } from '@/components/ui/input';
 import { contrasts, quantityUsed, validateDetail, type ShiftDetails } from '@/lib/shiftWorkflow';
 import { bottleCapacity, isFilm } from '@/lib/roomStock';
 import type { Json } from '@/integrations/supabase/types';
+import { useAuth } from '@/hooks/useAuth';
+import { canEditUsageDay } from '@/lib/usageEditAccess';
 
 type Flow = {id:string;name:string;unit:string;opening:number;received:number;initial_received?:number;topups?:number;adjustment:number;remaining:number;known:boolean};
 type Context = {items:Flow[];token:string};
 export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:string;shift:string;onDirtyChange:(value:boolean)=>void}) {
+ const {user,canManageStock}=useAuth();
+ const readOnly=!canEditUsageDay(date,user?.email,canManageStock);
  const [context,setContext]=useState<Context>({items:[],token:''});
  const [details,setDetails]=useState<ShiftDetails>({});
  const [saved,setSaved]=useState<Record<string,number>>({});
@@ -69,6 +73,7 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
  };
  const remaining=(item:Flow)=>details[item.id]===undefined?item.remaining:Number((item.remaining+(saved[item.id]||0)-quantityUsed(details[item.id])).toFixed(2));
  const save=async(finish:boolean)=>{
+  if(readOnly){setError('Staff can edit today or yesterday only. Ask Honey to correct an older day.');return;}
   setError('');setMessage('');
   if(staff.trim().length<2){setError('Enter your name.');return;}
   for(const item of context.items) {
@@ -91,6 +96,8 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
  };
 
  return <section className="space-y-7">
+  {readOnly&&<p role="status">Reference only. Staff can edit today or yesterday. Honey can correct older days.</p>}
+  <fieldset disabled={readOnly} className="contents">
   <div className="flex flex-wrap items-end justify-between gap-4"><label className="text-sm">Recorded by<Input value={staff} disabled={busy} placeholder="Your full name" onChange={e=>{setStaff(e.target.value);setDirty(true);}} /></label><p className="text-sm">{finished?'Shift finished':versions.review?'Saved, review before finishing':'New shift entry'}</p></div>
   <p className="text-sm text-muted-foreground">Leftovers carry forward automatically. <Link className="underline text-primary" onClick={e=>{if(dirty){e.preventDefault();setError('Save progress before recording a top-up.');}}} to={`/stock/pick?room=${encodeURIComponent(room)}&shift=${shift}&date=${date}`}>Pick or top up this room</Link>, then reload this shift.</p>
   {error&&<p role="alert" className="text-destructive">{error}</p>}{message&&<p role="status">{message}</p>}
@@ -129,5 +136,5 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
    <Button className="mt-4" disabled={busy} onClick={()=>void save(true)}>Finish shift</Button>
   </details>}
   <div className="flex flex-wrap gap-3"><Button disabled={busy||!ready||!dirty} onClick={()=>void save(false)}>{busy?'Saving / loading…':'Save progress'}</Button><Button variant="outline" disabled={busy} onClick={()=>{if(dirty&&!window.confirm('Discard your unsaved changes and reload?'))return;localStorage.removeItem(draftKey);void load();}}>Reload shift</Button></div>
- </section>;
+ </fieldset></section>;
 }

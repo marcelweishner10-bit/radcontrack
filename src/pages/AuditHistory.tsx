@@ -41,7 +41,7 @@ export default function AuditHistory() {
         const deleted=!!record.after_record.voided_at;
         const changes=auditChanges(record.before_record,record.after_record);
         return <article key={record.id} className="py-5 space-y-3">
-          <div><h2 className="font-semibold">{record.source==='usage'?'Daily usage':record.source==='room'?'Room stock':'Store stock'}: {itemNames[item] || item || String(record.after_record.room || '')} {deleted?'deleted':'corrected'}</h2><p className="text-sm text-muted-foreground">{new Date(record.changed_at).toLocaleString('en-GB',{timeZone:'Africa/Lagos'})} · {record.changed_by}</p></div>
+          <div><h2 className="font-semibold">{record.source==='clinical'?'Clinical records':record.source==='usage'?'Daily usage':record.source==='room'?'Room stock':'Store stock'}: {itemNames[item] || item || String(record.after_record.room || '')} {deleted?'deleted':'corrected'}</h2><p className="text-sm text-muted-foreground">{new Date(record.changed_at).toLocaleString('en-GB',{timeZone:'Africa/Lagos'})} · {record.changed_by}</p></div>
           <p className="text-sm"><span className="font-medium">Reason: </span>{record.reason}</p>
           <dl className="space-y-2">{changes.map(change=><div key={change.label} className="grid sm:grid-cols-[14rem_1fr_1fr] gap-1 sm:gap-3 text-sm"><dt className="font-medium">{change.label}</dt><dd className="break-words"><span className="text-muted-foreground">Before: </span>{change.before}</dd><dd className="break-words"><span className="text-muted-foreground">After: </span>{change.after}</dd></div>)}</dl>
         </article>;

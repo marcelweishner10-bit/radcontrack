@@ -3,6 +3,7 @@ import {MemoryRouter} from 'react-router-dom';
 import {afterEach,beforeEach,describe,it,expect,vi} from 'vitest';
 import {UnifiedShift} from './UnifiedShift';
 const mock=vi.hoisted(()=>({rpc:vi.fn(),from:vi.fn()}));
+vi.mock('@/hooks/useAuth',()=>({useAuth:()=>({user:{email:'honey.onabanjo@bthdc.com.ng'},canManageStock:true})}));
 vi.mock('@/integrations/supabase/client',()=>({supabase:mock}));
 beforeEach(()=>{
  localStorage.clear();
