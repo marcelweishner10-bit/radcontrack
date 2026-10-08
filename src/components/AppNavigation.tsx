@@ -28,7 +28,7 @@ export function StockNavigation() {
   const links = [
     { to:'/stock/pick', label:'Pick for a room', visible:true },
     { to:'/stock/receive', label:'Receive stock', visible:canManageStock },
-    { to:'/stock/count', label:'Count what is left', visible:true },
+    { to:'/stock/count', label:'Stock check', visible:true },
     { to:'/stock/balances', label:'Balances', visible:true },
     { to:'/stock/history', label:'Movement history', visible:true },
     { to:'/stock/access', label:'Staff access', visible:canManageStaff },

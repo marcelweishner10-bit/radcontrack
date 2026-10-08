@@ -12,6 +12,7 @@ import { STOCK_ROOMS, STOCK_SHIFTS, roomUnit, toRoomUnits, bottleCapacity, stock
 import { useAuth } from '@/hooks/useAuth';
 import { lagosToday, stockEntryError, PAST_PICK_WARNING } from '@/lib/stockEntryValidation';
 import { AppNavigation, StockNavigation } from '@/components/AppNavigation';
+import { StockCheckTable } from '@/components/StockCheckTable';
 
 type Item = Tables<'stock_items'>;
 type Movement = Tables<'stock_movements'>;
@@ -23,8 +24,8 @@ const typeLabels: Record<MovementType, string> = {
   receipt: 'Stock received', issue: 'Picked for a room', opening: 'Department stock count', room_count: 'Room count',
 };
 export type StockView = 'pick' | 'receive' | 'count' | 'balances' | 'history' | 'access';
-const viewTitles:Record<StockView,string> = {pick:'Pick for a room',receive:'Receive stock',count:'Count what is left',balances:'Stock balances',history:'Movement history',access:'Staff access'};
-const viewHelp:Record<StockView,string> = {pick:'Record items taken from department stock into a room. This moves stock; it does not record usage.',receive:'Record what was actually received from the main store and who received it.',count:'Count the items physically present. This replaces the balance at the selected location.',balances:'See what remains in department stock and each room. Uncounted locations are shown clearly.',history:'Review entries and correct mistakes beside the relevant record.',access:'Approve individual staff logins for daily picks and usage.'};
+const viewTitles:Record<StockView,string> = {pick:'Pick for a room',receive:'Receive stock',count:'Stock check before requisition',balances:'Stock balances',history:'Movement history',access:'Staff access'};
+const viewHelp:Record<StockView,string> = {pick:'Record items taken from department stock into a room. This moves stock; it does not record usage.',receive:'Record what was actually received from the main store and who received it.',count:'Review calculated stock left, compare it with a physical check, and correct differences before requesting new stock.',balances:'See what remains in department stock and each room. Uncounted locations are shown clearly.',history:'Review entries and correct mistakes beside the relevant record.',access:'Approve individual staff logins for daily picks and usage.'};
 
 export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const { user, canManageStock, canManageStaff, loading: accessLoading } = useAuth();
@@ -55,6 +56,8 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const [shift, setShift] = useState(new URLSearchParams(window.location.search).get('shift') || '');
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([newLine()]);
+  const [countDraft, setCountDraft] = useState<Record<string,string>>({});
+  useEffect(()=>{setCountDraft({});setConfirmed(false);},[type,destination]);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -106,11 +109,13 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const save = async () => {
     setError(''); setNotice('');
     if ((type === 'receipt' || type === 'opening') && !canManageStock) { setError('Only the administrator can manage store receipts and counts.'); return; }
-    const validationError = stockEntryError({type,date,today,recipient,destination,shift,confirmed,canBackdatePicks,
-      lines:lines.map((line,index)=>({...line,item:selectedLines[index].item}))});
+    const countEntry=type==='opening'||type==='room_count';
+    const entryLines=countEntry?items.filter(item=>(countDraft[item.id]??'').trim()!=='').map(item=>({itemId:item.id,quantity:countDraft[item.id],item})):lines.map((line,index)=>({...line,item:selectedLines[index].item}));
+    if(countEntry&&!entryLines.length){setError('Enter at least one quantity you physically counted. Leave unchecked items blank.');return;}
+    const validationError = stockEntryError({type,date,today,recipient,destination,shift,confirmed,canBackdatePicks,lines:entryLines});
     if (validationError) { setError(validationError); return; }
     if (type === 'issue' && date < today && !window.confirm(PAST_PICK_WARNING)) return;
-    const chosen = selectedLines;
+    const chosen = entryLines.map(line=>({item:line.item,quantity:Number(line.quantity)}));
     setSaving(true);
     const { error: saveError } = await supabase.rpc('move_room_stock_units', {
       p_type: type,
@@ -126,6 +131,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
     if (saveError) { setError(saveError.message); return; }
     setNotice(`${typeLabels[type]} saved.${type === 'issue' ? ' Stock moved to the room; it has not been consumed.' : ''} Uncounted balances remain awaiting a physical count.`);
     setLines([newLine()]); setReference(''); if(type!=='issue')setDestination(''); setConfirmed(false);
+    setCountDraft({});
     setRequestId(crypto.randomUUID());
     await refresh();
   };
@@ -180,14 +186,14 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
         {(type === 'opening' || type === 'room_count') && <p className="text-sm text-amber-800 bg-amber-50 rounded-lg p-3">Count what is physically here now, including any recent collections. This replaces the recorded balance at this location; it does not add more stock. Room film counts use individual films, not packs.</p>}
         {type === 'receipt' && <p className="text-sm text-muted-foreground">You can save a collection before counting existing stock. The full balance will remain unconfirmed until counted. Do not add a collection again if a later physical count already included it.</p>}
         {type === 'issue' && <p className="text-sm text-muted-foreground">{canBackdatePicks ? 'Past-date picks require confirmation because they change carried-forward balances.' : 'Record room picks for today. Ask Honey to record or correct a pick for a past date.'}</p>}
-        <div className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-semibold">Items</h4><Button type="button" variant="outline" size="sm" onClick={() => setLines(current => [...current, newLine()])}><Plus className="w-4 h-4 mr-1" />Add item</Button></div>
+        {view==='count'?<StockCheckTable items={items} rooms={roomStock} location={type==='opening'?'Department stock':destination} counts={countDraft} onChange={(id,value)=>{setCountDraft(current=>({...current,[id]:value}));setConfirmed(false);}} />:<div className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-semibold">Items</h4><Button type="button" variant="outline" size="sm" onClick={() => setLines(current => [...current, newLine()])}><Plus className="w-4 h-4 mr-1" />Add item</Button></div>
           {lines.map((line, index) => { const item=items.find(candidate => candidate.id === line.itemId); const quantity=Number(line.quantity) || 0; return <div key={line.key} className="grid sm:grid-cols-[minmax(0,1fr)_9rem_10rem_2.5rem] gap-3 items-end rounded-lg border p-3">
             <div><Label>Item {index + 1}</Label><Select value={line.itemId} onValueChange={value => setLine(line.key, { itemId: value })}><SelectTrigger aria-label={`Item ${index + 1}`}><SelectValue placeholder="Choose item" /></SelectTrigger><SelectContent>{items.map(candidate => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.unit})</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Quantity {item ? `(${item.unit})` : ''}</Label><Input aria-label={`Quantity for item ${index + 1}`} type="number" min={type === 'opening' || type === 'room_count' ? '0' : item && bottleCapacity(item.id) ? '0.01' : '1'} step={item && bottleCapacity(item.id) ? '0.01' : '1'} value={line.quantity} onChange={event => setLine(line.key, { quantity: event.target.value })} /></div>
             <div className="text-sm text-muted-foreground">{item ? type === 'room_count' ? `Room count: ${quantity} ${roomUnit(item.id,item.unit)}` : <><span>Department stock: {item.opening_recorded ? `${item.balance} ${item.unit}` : 'balance awaiting stock count'}</span><br />{type === 'opening' ? `Counted now: ${quantity} ${item.unit}` : type === 'issue' ? `To room: ${toRoomUnits(item.id,quantity)} ${roomUnit(item.id,item.unit)}` : `Adding: ${quantity} ${item.unit}`}</> : 'Select an item'}</div>
             <Button type="button" variant="ghost" size="icon" aria-label={`Remove item ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines(current => current.filter(candidate => candidate.key !== line.key))}><Trash2 className="w-4 h-4" /></Button>
           </div>; })}
-        </div>
+        </div>}
         <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} className="h-4 w-4 accent-primary" /><span>I confirm these quantities were {type === 'receipt' ? 'actually received' : type === 'issue' ? 'actually picked' : 'physically counted'}.</span></label>
         <Button onClick={() => void save()} disabled={saving || loading || accessLoading || items.length === 0}><Save className="w-4 h-4 mr-2" />{saving ? 'Saving…' : type === 'receipt' ? 'Save received stock' : type === 'issue' ? 'Save room pick' : 'Save physical count'}</Button>
         <p className="text-sm text-muted-foreground">Made a mistake? Open <Link className="text-primary underline" to="/stock/history">Movement history</Link> to correct an earlier entry.</p>

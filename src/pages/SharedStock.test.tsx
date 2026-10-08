@@ -19,6 +19,29 @@ beforeEach(() => { vi.stubGlobal('crypto', { randomUUID: () => 'test-line' }); v
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('shared stock access', () => {
+  it('saves only physically checked rows with the count replacement RPC',async()=>{
+    access.canManageStock=true;access.canManageStaff=false;
+    vi.mocked(supabase.rpc).mockResolvedValue({error:null,data:'count-batch'} as never);
+    render(<MemoryRouter><SharedStock view="count" /></MemoryRouter>);
+    await screen.findByRole('table',{name:'Stock check before requisition'});
+    expect(screen.getByRole('columnheader',{name:'Calculated total left'})).toBeInTheDocument();
+    const counted=screen.getByRole('spinbutton',{name:'Actually counted Gastrolux'});
+    expect(counted).toHaveValue(null);
+    fireEvent.change(counted,{target:{value:'180'}});
+    expect(screen.getByRole('cell',{name:'-20'})).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Counted by'),{target:{value:'Honey'}});
+    fireEvent.click(screen.getByRole('checkbox',{name:'I confirm these quantities were physically counted.'}));
+    fireEvent.click(screen.getByRole('button',{name:'Save physical count'}));
+    await waitFor(()=>expect(supabase.rpc).toHaveBeenCalledWith('move_room_stock_units',expect.objectContaining({p_type:'opening',p_lines:[{item_id:'gastrolux',quantity:180}],p_room:null})));
+  });
+  it('does not treat an unchecked row as a zero count',async()=>{
+    access.canManageStock=true;access.canManageStaff=false;
+    render(<MemoryRouter><SharedStock view="count" /></MemoryRouter>);
+    await screen.findByRole('table',{name:'Stock check before requisition'});
+    fireEvent.click(screen.getByRole('button',{name:'Save physical count'}));
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter at least one quantity you physically counted');
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
   it('blocks staff correcting yesterday even for their own pick',async()=>{
     access.canManageStock=false;access.canManageStaff=false;
     access.movements=[{id:'old-own',item_id:'gastrolux',movement_type:'issue',occurred_on:'2026-10-07',quantity:100,recorded_by:'honey'}];
