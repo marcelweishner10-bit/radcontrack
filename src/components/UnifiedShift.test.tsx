@@ -10,9 +10,19 @@ beforeEach(()=>{
  mock.rpc.mockImplementation(async(name:string)=>({error:null,data:name==='shift_context'?{token:'one',items:[{id:'ct_contrast',name:'CT Contrast',unit:'ml',opening:100,received:0,adjustment:0,remaining:100,known:true},{id:'film1714',name:'17 × 14 film',unit:'films',opening:20,received:0,adjustment:0,remaining:20,known:true}]}:1}));
  mock.from.mockImplementation((table:string)=>{const result={data:table==='stock_shift_usage'?[]:null,error:null};const query={select:()=>query,eq:()=>query,maybeSingle:()=>Promise.resolve(result),then:(resolve:(v:unknown)=>unknown)=>Promise.resolve(result).then(resolve)};return query;});
 });
-afterEach(cleanup);
+afterEach(()=>{cleanup();vi.restoreAllMocks();});
 const setup=async()=>{render(<MemoryRouter><UnifiedShift date="2026-10-07" room="CT" shift="morning" onDirtyChange={()=>{}}/></MemoryRouter>);await screen.findByLabelText('CT Contrast Used for patients (ml)');};
 describe('connected shift form',()=>{
+ it('cancel prevents replacing saved usage and keeps the correction draft',async()=>{
+  mock.from.mockImplementation((table:string)=>{const result={data:table==='stock_shift_usage'?[]:{version:1,stock_token:'one',details:{ct_contrast:{used:10,waste:0,patients:1}},staff:'Honey',physical:{},note:''},error:null};const query={select:()=>query,eq:()=>query,maybeSingle:()=>Promise.resolve(result),then:(resolve:(v:unknown)=>unknown)=>Promise.resolve(result).then(resolve)};return query;});
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+  await setup();
+  fireEvent.change(screen.getByLabelText('CT Contrast Used for patients (ml)'),{target:{value:'20'}});
+  fireEvent.click(screen.getByRole('button',{name:'Save progress'}));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Update this saved shift?'));
+  expect(mock.rpc.mock.calls.some(call=>call[0]==='save_shift')).toBe(false);
+  expect(screen.getByLabelText('CT Contrast Used for patients (ml)')).toHaveValue(20);
+ });
  it('shows initial pickups and top-ups separately while keeping the total and consumption calculation',async()=>{
   mock.rpc.mockImplementation(async(name:string)=>({error:null,data:name==='shift_context'?{token:'one',items:[{id:'ct_contrast',name:'CT Contrast',unit:'ml',opening:50,received:300,initial_received:200,topups:100,adjustment:0,remaining:350,known:true}]}:1}));
   await setup();

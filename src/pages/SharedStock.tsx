@@ -116,6 +116,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
     if (validationError) { setError(validationError); return; }
     if (type === 'issue' && date < today && !window.confirm(PAST_PICK_WARNING)) return;
     const chosen = entryLines.map(line=>({item:line.item,quantity:Number(line.quantity)}));
+    if (countEntry && !window.confirm(`Save this physical count for ${type==='opening'?'department stock':destination}? This replaces the recorded balance and affects stock carried forward. It does not add stock. Cancel keeps your entries.`)) return;
     setSaving(true);
     const { error: saveError } = await supabase.rpc('move_room_stock_units', {
       p_type: type,
@@ -146,8 +147,10 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
     if (editReason.trim().length < 3) { setError('Enter the reason for this correction.'); return; }
     if (editing.movement_type === 'issue' && (editing.occurred_on < today || editDate < today)) {
       if (!canBackdatePicks) { setError('Only Honey can correct or remove a pick for a past date. Ask Honey to help.'); return; }
-      if (!window.confirm(PAST_PICK_WARNING)) return;
     }
+    const item=items.find(item=>item.id===editing.item_id);
+    const backdated=editing.movement_type==='issue' && (editing.occurred_on<today || editDate<today);
+    if (!window.confirm(`${remove?'Delete this stock entry?':'Save this stock correction?'}\n\n${item?.name||editing.item_id}\n${remove?`${editing.quantity} ${item?.unit||''} on ${editing.occurred_on}`:`Quantity: ${editing.quantity} → ${editQuantity} ${item?.unit||''}\nDate: ${editing.occurred_on} → ${editDate}\nName: ${editing.recipient_name} → ${editRecipient}`}\n\n${remove?'The stock movement will be reversed.':'Affected balances will be recalculated.'} Later carryover may change. The original stays in audit history.${backdated?`\n\n${PAST_PICK_WARNING}`:''}\n\nCancel keeps the existing record.`)) return;
     setSaving(true); setError(''); setNotice('');
     const result = await supabase.rpc('correct_stock_movement', { p_source: editing.source, p_id: editing.id, p_version: editing.version, p_quantity: Number(editQuantity), p_date: editDate, p_staff: editRecipient, p_reference: editReference || null, p_reason: editReason.trim(), p_delete: remove });
     setSaving(false);
@@ -156,6 +159,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
     await refresh();
   };
   const setStaffAccess = async (active: boolean) => {
+    if (!window.confirm(`${active?'Approve':'Remove'} access for ${staffEmail.trim()}? ${active?'This allows daily picks and usage.':'They will no longer be able to use the app with this login.'}`)) return;
     setStaffAccessSaving(true); setError(''); setNotice('');
     const { error } = await supabase.rpc('set_stock_staff', { p_email: staffEmail.trim(), p_active: active });
     setStaffAccessSaving(false);
@@ -191,7 +195,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
             <div><Label>Item {index + 1}</Label><Select value={line.itemId} onValueChange={value => setLine(line.key, { itemId: value })}><SelectTrigger aria-label={`Item ${index + 1}`}><SelectValue placeholder="Choose item" /></SelectTrigger><SelectContent>{items.map(candidate => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.unit})</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Quantity {item ? `(${item.unit})` : ''}</Label><Input aria-label={`Quantity for item ${index + 1}`} type="number" min={type === 'opening' || type === 'room_count' ? '0' : item && bottleCapacity(item.id) ? '0.01' : '1'} step={item && bottleCapacity(item.id) ? '0.01' : '1'} value={line.quantity} onChange={event => setLine(line.key, { quantity: event.target.value })} /></div>
             <div className="text-sm text-muted-foreground">{item ? type === 'room_count' ? `Room count: ${quantity} ${roomUnit(item.id,item.unit)}` : <><span>Department stock: {item.opening_recorded ? `${item.balance} ${item.unit}` : 'balance awaiting stock count'}</span><br />{type === 'opening' ? `Counted now: ${quantity} ${item.unit}` : type === 'issue' ? `To room: ${toRoomUnits(item.id,quantity)} ${roomUnit(item.id,item.unit)}` : `Adding: ${quantity} ${item.unit}`}</> : 'Select an item'}</div>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Remove item ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines(current => current.filter(candidate => candidate.key !== line.key))}><Trash2 className="w-4 h-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" aria-label={`Remove item ${index + 1}`} disabled={lines.length === 1} onClick={() => {if((line.itemId||line.quantity)&&!window.confirm('Remove this item from your unsaved entry? Cancel keeps the item.'))return;setLines(current => current.filter(candidate => candidate.key !== line.key));}}><Trash2 className="w-4 h-4" /></Button>
           </div>; })}
         </div>}
         <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} className="h-4 w-4 accent-primary" /><span>I confirm these quantities were {type === 'receipt' ? 'actually received' : type === 'issue' ? 'actually picked' : 'physically counted'}.</span></label>

@@ -78,6 +78,8 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
    if(finish && physical[item.id]===undefined){setError(`Confirm what remains for ${item.name}.`);return;}
   }
   const payload=Object.fromEntries(Object.entries(details).filter(([id])=>context.items.some(i=>i.id===id)).map(([id,d])=>[id,{...d,used:d.used||0,waste:d.waste||0,patients:d.patients||0}]));
+  const existing=versions.review>0||versions.films>0||versions.supplies>0;
+  if ((existing||finish)&&!window.confirm(`${existing?'Update this saved shift?':'Finish this shift?'}\n\n${date} · ${room} · ${shift}\n\n${existing?'This replaces the saved usage and recalculates room balances and later carryover.':'This saves usage and the remaining stock for carryover.'}${finish?' Physical counts can adjust the recorded balance.':''}\n\nCancel keeps your entries without saving.`)) return;
   setBusy(true);
   try {
    const result=await supabase.rpc('save_shift',{p_date:date,p_room:room,p_shift:shift,p_details:payload as Json,p_staff:staff.trim(),p_version:versions.review,p_film_version:versions.films,p_supply_version:versions.supplies,p_finish:finish,p_physical:physical,p_note:note,p_token:context.token});

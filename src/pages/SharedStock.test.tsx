@@ -19,6 +19,31 @@ beforeEach(() => { vi.stubGlobal('crypto', { randomUUID: () => 'test-line' }); v
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('shared stock access', () => {
+  it.each([false,true])('cancel blocks stock correction/deletion (delete=%s)',async(remove)=>{
+    access.canManageStock=true;access.canManageStaff=false;
+    access.movements=[{id:'receipt',item_id:'gastrolux',quantity:200,occurred_on:'2026-10-08',recipient_name:'Honey',reference:'R1',version:1,movement_type:'receipt'}];
+    render(<MemoryRouter><SharedStock view="history" /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button',{name:'Edit / delete'}));
+    fireEvent.change(screen.getByPlaceholderText('For example, entered 10000 instead of 100 films'),{target:{value:'Wrong quantity'}});
+    vi.mocked(window.confirm).mockReturnValue(false);
+    if(remove)fireEvent.click(screen.getByRole('checkbox',{name:'Remove this entry and reverse its stock movement'}));
+    fireEvent.click(screen.getByRole('button',{name:remove?'Delete entry':'Save correction'}));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining(remove?'Delete this stock entry?':'Save this stock correction?'));
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText('For example, entered 10000 instead of 100 films')).toHaveValue('Wrong quantity');
+  });
+  it('cancel preserves a physical count draft without replacing stock',async()=>{
+    access.canManageStock=true;access.canManageStaff=false;
+    render(<MemoryRouter><SharedStock view="count" /></MemoryRouter>);
+    const counted=await screen.findByRole('spinbutton',{name:'Actually counted Gastrolux'});
+    fireEvent.change(counted,{target:{value:'180'}});
+    fireEvent.change(screen.getByLabelText('Counted by'),{target:{value:'Honey'}});
+    fireEvent.click(screen.getByRole('checkbox',{name:'I confirm these quantities were physically counted.'}));
+    vi.mocked(window.confirm).mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button',{name:'Save physical count'}));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('replaces the recorded balance'));
+    expect(supabase.rpc).not.toHaveBeenCalled();expect(counted).toHaveValue(180);
+  });
   it('saves only physically checked rows with the count replacement RPC',async()=>{
     access.canManageStock=true;access.canManageStaff=false;
     vi.mocked(supabase.rpc).mockResolvedValue({error:null,data:'count-batch'} as never);
