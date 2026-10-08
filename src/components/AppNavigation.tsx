@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { Button } from '@/components/ui/button';
 import { Sun, Moon } from 'lucide-react';
-import { TrackRadBrand } from './TrackRadBrand';
+import { TracstocBrand } from './TracstocBrand';
 
 export function AppNavigation() {
   const { user, canManageStock, canManageStaff, signOut } = useAuth();
@@ -11,7 +11,7 @@ export function AppNavigation() {
   const linkStyle = ({ isActive }: { isActive: boolean }) => `rounded-md px-3 py-2 text-sm font-medium ${isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`;
   return <header className="border-b bg-card">
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-      <div className="space-y-1"><TrackRadBrand /><p className="text-xs text-muted-foreground break-all">{user?.email}</p></div>
+      <div className="space-y-1"><TracstocBrand /><p className="text-xs text-muted-foreground break-all">{user?.email}</p></div>
       <nav aria-label="Main navigation" className="flex flex-wrap gap-1">
         <NavLink to="/" end className={linkStyle}>Daily usage</NavLink>
         <NavLink to="/stock" className={linkStyle}>Stock</NavLink>

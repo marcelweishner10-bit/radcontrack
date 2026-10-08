@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { TrackRadBrand } from '@/components/TrackRadBrand';
+import { TracstocBrand } from '@/components/TracstocBrand';
 import { Loader2 } from 'lucide-react';
 
 const Auth = () => {
@@ -37,7 +37,7 @@ const Auth = () => {
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="dashboard-card p-8 w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3">
-          <h1><TrackRadBrand large /></h1>
+          <h1><TracstocBrand large /></h1>
           <p className="text-sm text-foreground">Radiology operations & inventory</p>
           <p className="text-sm text-muted-foreground">Sign in to continue</p>
         </div>
