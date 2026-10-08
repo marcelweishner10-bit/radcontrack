@@ -104,16 +104,18 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
   {!ready&&<p>{busy?'Loading shared shift…':'The shift could not load. Check that the database update has been applied, then reload.'}</p>}
   {ready&&[['Contrast', (id:string)=>contrasts.includes(id)],['Films printed',(id:string)=>isFilm(id)],['Other consumables',(id:string)=>!contrasts.includes(id)&&!isFilm(id)]].map(([title,filter])=>{
    const items=context.items.filter(i=>(filter as (id:string)=>boolean)(i.id));if(!items.length)return null;
-   const splitPicks=items.every(item=>item.initial_received!==undefined&&item.topups!==undefined);
+   const estimated=title!=='Contrast';
+   const splitPicks=false;
    return <section key={title as string} className="border-t pt-5 space-y-4"><h2 className="text-lg font-bold">{title as string}</h2>
     {title==='Films printed'&&<p className="text-sm text-muted-foreground">Include reprints in films printed. Count patients separately for each size; do not count the same patient again for a reprint.</p>}
+    {estimated&&<p className="text-sm text-muted-foreground">Calculated automatically from recorded pickups and usage. The balance carries into the next shift. Include reprints in usage.</p>}
     {splitPicks&&<p className="text-sm text-muted-foreground">Initial stock received is the first pickup for each item in this shift. Additional stock received / Top-ups adds all later pickups. Carried over is stock left from earlier shifts.</p>}
     <div className="overflow-x-auto rounded-lg border border-border"><table aria-label={title as string} className="w-full border-collapse">
      <thead><tr className="bg-muted/50"><th scope="col" className="p-3 text-left text-sm min-w-[180px] border-b">Row Type</th>{items.map(item=><th scope="colgroup" key={item.id} colSpan={title==='Contrast'?2:1} className="p-3 text-center text-sm font-semibold border-b border-l min-w-[150px]">{item.name}</th>)}</tr>
      <tr className="bg-muted/30"><th className="border-b" />{items.map(item=><Fragment key={item.id}><th scope="col" className="p-2 text-xs text-muted-foreground border-b border-l">{title==='Contrast'?'Total (mls)':item.unit}</th>{title==='Contrast'&&<th scope="col" className="p-2 text-xs text-muted-foreground border-b min-w-[110px]">Bottle equivalent</th>}</Fragment>)}</tr></thead>
      <tbody>
       {(['Carried Over',...(splitPicks?['Initial Stock Received','Additional Stock Received / Top-ups']:['Additional Stock Received']),...(items.some(i=>i.adjustment!==0)?['Physical Count Adjustment']:[]),'Total Qty Available','Total Consumption',...(title==='Contrast'?['Wastage']:[]),...(title==='Other consumables'?[]:['No. of Patients']),'Outstanding Stock','Review'] as const).map(label=><tr key={label} className={label==='Outstanding Stock'?'bg-accent/30':label==='No. of Patients'?'bg-accent/10':'hover:bg-muted/20'}>
-       <th scope="row" className="p-3 text-sm text-left font-medium border-b">{label}{label==='Total Consumption'&&title==='Contrast'&&<span className="block text-xs font-normal text-muted-foreground">Given to patients</span>}{label==='Outstanding Stock'&&<span className="block text-xs font-normal text-muted-foreground">Available − used{title==='Contrast'?' − wastage':''}</span>}</th>
+       <th scope="row" className="p-3 text-sm text-left font-medium border-b">{estimated&&label==='Carried Over'?'Balance carried over from recorded entries':estimated&&label==='Outstanding Stock'?'Balance from recorded pickups and usage':estimated&&label==='Physical Count Adjustment'?'Starting balance / stock check adjustment':label==='Additional Stock Received'?'Stock picked this shift':estimated&&label==='Total Consumption'?'Used this shift':label}{label==='Total Consumption'&&title==='Contrast'&&<span className="block text-xs font-normal text-muted-foreground">Given to patients</span>}{label==='Outstanding Stock'&&<span className="block text-xs font-normal text-muted-foreground">Available − used{title==='Contrast'?' − wastage':''}</span>}</th>
        {items.map(item=>{
         const key=label==='Total Consumption'?'used':label==='Wastage'?'waste':label==='No. of Patients'?'patients':null;
         const value=label==='Carried Over'?item.opening:label==='Initial Stock Received'?item.initial_received:label==='Additional Stock Received / Top-ups'?item.topups:label==='Additional Stock Received'?item.received:label==='Physical Count Adjustment'?item.adjustment:label==='Total Qty Available'?Number((item.opening+item.received+item.adjustment).toFixed(2)):label==='Outstanding Stock'?remaining(item):key?details[item.id]?.[key]:0;
@@ -124,13 +126,14 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
        })}
       </tr>)}
      </tbody></table></div>
-     {items.some(i=>!i.known)&&<p className="text-xs text-muted-foreground">Opening balance unconfirmed for: {items.filter(i=>!i.known).map(i=>i.name).join(', ')}.</p>}
+     {items.some(i=>!i.known)&&<p className="text-xs text-muted-foreground">{estimated?'Tracked balance only: older stock already in the room is not included for':'Opening balance unconfirmed for'}: {items.filter(i=>!i.known).map(i=>i.name).join(', ')}.</p>}
+     {estimated&&items.some(i=>remaining(i)<0)&&<p role="status" className="text-amber-700">Earlier stock or a pickup is missing for: {items.filter(i=>remaining(i)<0).map(i=>i.name).join(', ')}. Recorded usage exceeds tracked stock; the difference is shown, not hidden.</p>}
      {items.filter(i=>!details[i.id]&&saved[i.id]>0).map(item=><p key={item.id} className="text-xs text-muted-foreground">{item.name}: earlier depletion {saved[item.id]} {item.unit}. Enter the breakdown to review it; it remains unchanged until corrected.</p>)}
 
    </section>;
   })}
-  {ready&&<details className="border-t pt-5"><summary className="cursor-pointer font-semibold">Finish shift: check what remains</summary>
-   <p className="text-sm text-muted-foreground my-3">Check the actual stock in the room. Differences are recorded for review and do not silently change stock.</p>
+  {ready&&<details className="border-t pt-5"><summary className="cursor-pointer font-semibold">Finish shift / physical stock check</summary>
+   <p className="text-sm text-muted-foreground my-3">The tables estimate what remains as you enter usage; saving progress carries those balances forward. Only enter actual quantities below when you physically check the room. Do not report an estimate as a physical count.</p>
    <div className="space-y-3">{context.items.map(item=><div key={item.id} className="flex flex-wrap gap-3 items-center"><span className="w-48 text-sm">{item.name}: expected {remaining(item)} {item.unit}</span><Input aria-label={`${item.name} actually remaining`} className="w-28" type="number" min="0" step={contrasts.includes(item.id)?0.01:1} disabled={busy} value={physical[item.id]??''} onChange={e=>{setPhysical(p=>{const next={...p};if(e.target.value==='')delete next[item.id];else next[item.id]=Number(e.target.value);return next;});setDirty(true);}}/><Button variant="outline" disabled={busy||remaining(item)<0||!item.known} onClick={()=>{setPhysical(p=>({...p,[item.id]:remaining(item)}));setDirty(true);}}>Matches</Button></div>)}</div>
    <label className="block text-sm mt-4">Explain any difference or unconfirmed opening balance<Input value={note} disabled={busy} onChange={e=>{setNote(e.target.value);setDirty(true);}}/></label>
    <Button className="mt-4" disabled={busy} onClick={()=>void save(true)}>Finish shift</Button>

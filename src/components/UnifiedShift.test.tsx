@@ -24,15 +24,21 @@ describe('connected shift form',()=>{
   expect(mock.rpc.mock.calls.some(call=>call[0]==='save_shift')).toBe(false);
   expect(screen.getByLabelText('CT Contrast Used for patients (ml)')).toHaveValue(20);
  });
- it('shows initial pickups and top-ups separately while keeping the total and consumption calculation',async()=>{
+ it('combines pickups and top-ups while keeping consumption calculations',async()=>{
   mock.rpc.mockImplementation(async(name:string)=>({error:null,data:name==='shift_context'?{token:'one',items:[{id:'ct_contrast',name:'CT Contrast',unit:'ml',opening:50,received:300,initial_received:200,topups:100,adjustment:0,remaining:350,known:true}]}:1}));
   await setup();
-  expect(screen.getByRole('row',{name:'Initial Stock Received 200 2'})).toBeInTheDocument();
-  expect(screen.getByRole('row',{name:'Additional Stock Received / Top-ups 100 1'})).toBeInTheDocument();
+  expect(screen.getByRole('row',{name:'Stock picked this shift 300 3'})).toBeInTheDocument();
   expect(screen.getByRole('row',{name:'Total Qty Available 350 3.5'})).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('CT Contrast Used for patients (ml)'),{target:{value:'70'}});
   fireEvent.change(screen.getByLabelText('CT Contrast Wastage (ml)'),{target:{value:'10'}});
   expect(screen.getByText('270 ml')).toBeInTheDocument();
+ });
+ it('updates estimated film remaining from usage without a physical count',async()=>{
+  await setup();
+  fireEvent.change(screen.getByLabelText('17 × 14 film Films printed'),{target:{value:'6'}});
+  expect(screen.getByRole('row',{name:'Balance carried over from recorded entries 20'})).toBeInTheDocument();
+  expect(screen.getByRole('row',{name:/Balance from recorded pickups and usage.*14 films/})).toBeInTheDocument();
+  expect(screen.getByLabelText('17 × 14 film actually remaining')).toHaveValue(null);
  });
  it('shows one contrast entry and previews actual use plus wastage',async()=>{
   await setup();
