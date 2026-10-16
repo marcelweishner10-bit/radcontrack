@@ -32,3 +32,9 @@ Apply steps 2 and 3 back to back, then publish the app straight away. The old ap
 
 ## Rollback
 The consolidation is not reversed automatically. Every moved row has an audit record with its original room (`before_record`), and the pre-release JSON backup holds the earlier state. To roll back the app only, republish the previous Cloudflare deployment. The new database stays compatible with it.
+
+## Release record, 16 Oct 2026 (~05:30 WAT)
+- Pre-release backup: `migration-backup/tracstoc-backup-2026-10-16-prerelease.json` (git-ignored), SHA-256 da500a8a…, verified after download. Rehearsed on a replica of that backup; all end-to-end checks passed.
+- Database: `20261008135954` and `20261015210000` applied in one transaction through the SQL editor, with in-transaction checks on per-item totals, ledgers, row counts and usage/contrast checksums. The checks passed and the transaction committed. The 7 changed function bodies match the repo.
+- After release: per-item totals are identical to before (for example CD 579, 17 × 14 film 850, CT contrast 4494 ml). Contrast rooms are unchanged (CT 1419 ml, MRI 7 ml). The Shared pool holds 8 items; 75 earlier picks are attributed to rooms; the clinical record checksum is unchanged; TRUNCATE/TRIGGER/REFERENCES grants are removed.
+- App: Cloudflare Pages deployment `3d1a7469` (wrangler direct upload of commit 4bd50f7), bundle `index-X7elfRs1.js`, now served at https://tracstoc.pages.dev. Previous production deployment for an app-only rollback: `0dec7ca0`.
