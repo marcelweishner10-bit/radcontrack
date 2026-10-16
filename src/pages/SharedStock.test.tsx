@@ -11,7 +11,7 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ ...access, loading: false 
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {
   from: (name: string) => {
     const result = Promise.resolve({ error: null, data: name === 'stock_items' ? [{ id: 'gastrolux', name: 'Gastrolux', unit: 'ml', balance: 200, opening_recorded: true, active: true }] : name === 'stock_movements' ? access.movements : name === 'room_stock_movements' ? access.roomMovements : [] });
-    const query = { select: () => query, eq: () => query, order: () => query, limit: () => query, range: () => query, then: result.then.bind(result) };
+    const query = { select: () => query, eq: () => query, or: () => query, order: () => query, limit: () => query, range: () => query, then: result.then.bind(result) };
     return query;
   }, rpc: vi.fn(),
 } }));
@@ -148,7 +148,7 @@ describe('shared stock access', () => {
     access.canManageStock = false; access.canManageStaff = false;
     render(<MemoryRouter><SharedStock view="count" /></MemoryRouter>);
     await screen.findByRole('button',{name:'Save physical count'});
-    expect(screen.getByRole('button',{name:'In a room'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Shared stock or a contrast room'})).toBeInTheDocument();
     expect(screen.queryByRole('button',{name:'In the store'})).not.toBeInTheDocument();
   });
   it('gives an editor a dedicated received-stock form', async () => {
@@ -177,5 +177,26 @@ describe('shared stock access', () => {
     await screen.findByText('Unconfirmed');
     expect(screen.getByText('0 (tracked balance)')).toBeInTheDocument();
     expect(screen.queryByRole('button',{name:'Save room pick'})).not.toBeInTheDocument();
+  });
+  it('lets Honey move a contrast pick to the room it actually went to', async () => {
+    access.canManageStock=true; access.canManageStaff=false;
+    access.movements=[{id:'misrouted',item_id:'mri_contrast',movement_type:'issue',quantity:30,occurred_on:'2026-10-07',recipient_name:'GEORGE',version:1,recorded_by:'honey',destination:'CT',picked_for:'CT',shift:'afternoon'}];
+    vi.mocked(supabase.rpc).mockResolvedValue({error:null,data:2} as never);
+    render(<MemoryRouter><SharedStock view="history" /></MemoryRouter>);
+    expect(await screen.findByText('CT · afternoon')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Edit / delete'}));
+    fireEvent.change(screen.getByLabelText('Reason for correction'),{target:{value:'Taken to MRI, recorded under CT'}});
+    fireEvent.click(screen.getByRole('button',{name:'Move to correct room'}));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('CT → MRI'));
+    await waitFor(()=>expect(supabase.rpc).toHaveBeenCalledWith('correct_pick_room',{p_store_id:'misrouted',p_version:1,p_room:'MRI',p_reason:'Taken to MRI, recorded under CT'}));
+    expect(await screen.findByText(/Pick moved to MRI/)).toBeInTheDocument();
+  });
+  it('shows Shared pickups with the room they were collected for and offers no room move', async () => {
+    access.canManageStock=true; access.canManageStaff=false;
+    access.movements=[{id:'films',item_id:'gastrolux',movement_type:'issue',quantity:100,occurred_on:'2026-10-07',recipient_name:'JETHRO',version:1,recorded_by:'honey',destination:'Shared',picked_for:'X-ray',shift:'morning'}];
+    render(<MemoryRouter><SharedStock view="history" /></MemoryRouter>);
+    expect(await screen.findByText('Shared stock (picked for X-ray) · morning')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Edit / delete'}));
+    expect(screen.queryByRole('button',{name:'Move to correct room'})).not.toBeInTheDocument();
   });
 });
