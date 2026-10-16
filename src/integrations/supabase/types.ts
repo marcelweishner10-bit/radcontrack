@@ -96,7 +96,7 @@ export type Database = {
         Row: {
           id: string; batch_id: string; item_id: string; movement_type: string;
           quantity: number; balance_after: number; occurred_on: string; recipient_name: string;
-          destination: string | null; reference: string | null;
+          destination: string | null; picked_for: string | null; reference: string | null;
           recorded_by: string; created_at: string; balance_known: boolean; shift: string | null; version: number; voided_at: string | null
         }
         Insert: {
@@ -126,7 +126,7 @@ export type Database = {
         Relationships: []
       }
       room_stock_movements: {
-        Row: { id: string; batch_id: string; room: string; item_id: string; movement_type: string; change: number; balance_after: number; balance_known: boolean; occurred_on: string; shift: string | null; staff_name: string; recorded_by: string; created_at: string; version: number; voided_at: string | null }
+        Row: { id: string; batch_id: string; room: string; item_id: string; movement_type: string; change: number; balance_after: number; balance_known: boolean; occurred_on: string; shift: string | null; staff_name: string; recorded_by: string; created_at: string; version: number; voided_at: string | null; usage_room: string | null }
         Insert: { room: string; item_id: string; movement_type: string; change: number; balance_after: number; balance_known: boolean; occurred_on: string; shift?: string | null; staff_name: string; recorded_by: string; batch_id: string }
         Update: { change?: number }
         Relationships: []
@@ -141,6 +141,7 @@ export type Database = {
       inventory_permissions: { Args: Record<string, never>; Returns: Json }
       set_stock_staff: { Args: { p_email: string; p_active: boolean }; Returns: undefined }
       edit_stock_receipt: { Args: { p_id: string; p_version: number; p_quantity: number; p_date: string; p_recipient: string; p_reference?: string | null; p_delete?: boolean }; Returns: number }
+      correct_pick_room: { Args: { p_store_id: string; p_version: number; p_room: string; p_reason: string }; Returns: number }
       correct_stock_movement: { Args: { p_source: string; p_id: string; p_version: number; p_quantity: number; p_date: string; p_staff: string; p_reference: string | null; p_reason: string; p_delete?: boolean }; Returns: number }
       stock_audit_history: { Args: { p_start: string; p_end: string; p_offset?: number; p_limit?: number }; Returns: Json }
       move_room_stock_units: {

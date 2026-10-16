@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { format } from 'date-fns';
 import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
@@ -8,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { STOCK_LOCATIONS, stockLocation, STOCK_SHIFTS, roomUnit, toRoomUnits, bottleCapacity, stockAmount } from '@/lib/roomStock';
+import { STOCK_LOCATIONS, STOCK_ROOMS, stockLocation, isSharedItem, STOCK_SHIFTS, roomUnit, toRoomUnits, bottleCapacity, stockAmount } from '@/lib/roomStock';
 import { useAuth } from '@/hooks/useAuth';
 import { lagosToday, stockEntryError, PAST_PICK_WARNING } from '@/lib/stockEntryValidation';
 import { AppNavigation, StockNavigation } from '@/components/AppNavigation';
@@ -16,7 +15,7 @@ import { StockCheckTable } from '@/components/StockCheckTable';
 
 type Item = Tables<'stock_items'>;
 type Movement = Tables<'stock_movements'>;
-type Correction = Pick<Movement, 'id' | 'item_id' | 'quantity' | 'occurred_on' | 'recipient_name' | 'reference' | 'version' | 'movement_type'> & { source: 'store' | 'room' };
+type Correction = Pick<Movement, 'id' | 'item_id' | 'quantity' | 'occurred_on' | 'recipient_name' | 'reference' | 'version' | 'movement_type'> & { source: 'store' | 'room'; destination?: string | null };
 type MovementType = 'receipt' | 'issue' | 'opening' | 'room_count';
 type DraftLine = { key: string; itemId: string; quantity: string };
 const newLine = (): DraftLine => ({ key: crypto.randomUUID(), itemId: '', quantity: '' });
@@ -24,8 +23,10 @@ const typeLabels: Record<MovementType, string> = {
   receipt: 'Stock received', issue: 'Picked for a room', opening: 'Department stock count', room_count: 'Room count',
 };
 export type StockView = 'pick' | 'receive' | 'count' | 'balances' | 'history' | 'access';
-const viewTitles:Record<StockView,string> = {pick:'Pick for a room',receive:'Receive stock',count:'Stock check before requisition',balances:'Stock balances',history:'Movement history',access:'Staff access'};
-const viewHelp:Record<StockView,string> = {pick:'Pick films and consumables into Shared stock for all rooms. CT and MRI contrast go to their selected room. A pickup moves stock; it does not record usage.',receive:'Record what was actually received from the main store and who received it.',count:'Review calculated stock left, compare it with a physical check, and correct differences before requesting new stock.',balances:'See what remains in department stock and each room. Uncounted locations are shown clearly.',history:'Review entries and correct mistakes beside the relevant record.',access:'Approve individual staff logins for daily picks and usage.'};
+const COUNT_LOCATIONS = ['Shared','CT','MRI','Fluoroscopy'] as const;
+const destinationLabel = (row: Pick<Movement,'destination'|'picked_for'|'shift'>) => [row.destination==='Shared'?`Shared stock${row.picked_for?` (picked for ${row.picked_for})`:''}`:row.destination,row.shift].filter(Boolean).join(' · ');
+const viewTitles:Record<StockView,string> = {pick:'Pick for a room',receive:'Receive stock',count:'Stock check',balances:'Stock balances',history:'Movement history',access:'Staff access'};
+const viewHelp:Record<StockView,string> = {pick:'Record what you collected from department stock. Films and consumables go into Shared stock for every room; CT and MRI contrast go to their own room automatically. A pickup moves stock; it is not usage.',receive:'Record what was actually received from the main store and who received it.',count:'Compare the calculated balance with what you physically count. A count replaces the balance at that location; it does not add stock.',balances:'See what remains in department stock, Shared stock and the contrast rooms. Balances not yet confirmed by a count are marked.',history:'Review entries and correct mistakes beside the relevant record.',access:'Approve individual staff logins for daily picks and usage.'};
 
 export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const { user, canManageStock, canManageStaff, loading: accessLoading } = useAuth();
@@ -48,9 +49,10 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const [editReference, setEditReference] = useState('');
   const [editReason, setEditReason] = useState('');
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [moveRoom, setMoveRoom] = useState('');
   const [staffEmail, setStaffEmail] = useState('');
   const [staffAccessSaving, setStaffAccessSaving] = useState(false);
-  const [date, setDate] = useState(new URLSearchParams(window.location.search).get('date') || format(new Date(), 'yyyy-MM-dd'));
+  const [date, setDate] = useState(new URLSearchParams(window.location.search).get('date') || today);
   const [recipient, setRecipient] = useState('');
   const [destination, setDestination] = useState(new URLSearchParams(window.location.search).get('room') || '');
   const [shift, setShift] = useState(new URLSearchParams(window.location.search).get('shift') || '');
@@ -68,7 +70,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     let pickQuery = view === 'pick' ? supabase.from('stock_movements').select('*').eq('movement_type','issue').eq('occurred_on',date) : null;
-    if (pickQuery && destination) pickQuery = pickQuery.eq('destination',destination);
+    if (pickQuery && destination) pickQuery = destination==='Shared' ? pickQuery.eq('destination','Shared') : pickQuery.or(`destination.eq.${destination},picked_for.eq.${destination}`);
     if (pickQuery && shift) pickQuery = pickQuery.eq('shift',shift);
     const [itemResult, movementResult, roomResult, roomMovementResult] = await Promise.all([
       supabase.from('stock_items').select('*').eq('active', true).order('name'),
@@ -137,10 +139,32 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
     await refresh();
   };
 
+  // Contrast picked into the wrong room: only the two room balances change, never department stock.
+  const moveTargets = (row: Correction) => row.movement_type !== 'issue' || !row.destination || isSharedItem(row.item_id) ? [] : STOCK_ROOMS.filter(room => room !== row.destination && (row.item_id === 'mri_contrast' ? room === 'MRI' : room === 'CT' || room === 'Fluoroscopy'));
   const beginCorrection = (row: Correction) => {
     setEditing(row); setEditQuantity(String(row.quantity)); setEditDate(row.occurred_on);
     setEditRecipient(row.recipient_name); setEditReference(row.reference || '');
     setEditReason(''); setDeleteConfirmed(false);
+    const targets = moveTargets(row); setMoveRoom(targets.length === 1 ? targets[0] : '');
+  };
+  const movePick = async () => {
+    if (!editing || !moveRoom) return;
+    if (editReason.trim().length < 5) { setError('Enter the reason for moving this pick, for example where it actually went.'); return; }
+    const item=items.find(item=>item.id===editing.item_id);
+    if (!window.confirm(`Move this pick to ${moveRoom}?
+
+${item?.name||editing.item_id}: ${editing.quantity} ${item?.unit||''} on ${editing.occurred_on}
+${editing.destination} → ${moveRoom}
+
+${editing.destination} goes down and ${moveRoom} goes up by the same amount from that shift onwards. Department stock does not change. Later carried-forward balances in both rooms may change. The original stays in audit history.
+
+Cancel keeps the existing record.`)) return;
+    setSaving(true); setError(''); setNotice('');
+    const result = await supabase.rpc('correct_pick_room', { p_store_id: editing.id, p_version: editing.version, p_room: moveRoom, p_reason: editReason.trim() });
+    setSaving(false);
+    if (result.error) { setError(result.error.message); return; }
+    setEditing(null); setNotice(`Pick moved to ${moveRoom}. Both rooms' balances are updated and the original is kept in audit history.`);
+    await refresh();
   };
   const editReceipt = async (remove: boolean) => {
     if (!editing || (remove && !deleteConfirmed)) return;
@@ -179,22 +203,22 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
       {view==='pick' && destination && shift && <Link className="text-primary underline text-sm" to={`/?room=${encodeURIComponent(destination)}&shift=${shift}&date=${date}`}>Return to this room’s daily entry</Link>}
 
       {formVisible && <section className="dashboard-card p-5 space-y-5">
-        {view === 'count' && <div className="flex flex-wrap gap-2">{(['opening','room_count'] as const).filter(option=>canManageStock || option==='room_count').map(option => <Button key={option} type="button" variant={type === option ? 'default' : 'outline'} onClick={() => { setType(option); setConfirmed(false); setDate(format(new Date(), 'yyyy-MM-dd')); }}>{option === 'opening' ? 'In department stock' : 'In a room'}</Button>)}</div>}
+        {view === 'count' && <div className="flex flex-wrap gap-2">{(['opening','room_count'] as const).filter(option=>canManageStock || option==='room_count').map(option => <Button key={option} type="button" variant={type === option ? 'default' : 'outline'} onClick={() => { setType(option); setConfirmed(false); setDate(today); }}>{option === 'opening' ? 'Department stock' : 'Shared stock or a contrast room'}</Button>)}</div>}
         <p className="text-sm text-muted-foreground">Use ml for all contrast, individual films and CD pieces, and packs for gloves. 1 film pack = 100 films. {canManageStock ? 'Your stock-editor login can manage received stock.' : 'Main store collections are managed by the authorised stock editor.'}</p>
         <div className="grid md:grid-cols-3 gap-4">
           <div><Label htmlFor="stock-date">Date</Label><Input id="stock-date" type="date" min={type === 'issue' && !canBackdatePicks ? today : undefined} max={today} value={date} onChange={event => setDate(event.target.value)} /></div>
           <div><Label htmlFor="stock-recipient">{type === 'receipt' ? 'Received by' : type === 'issue' ? 'Picked by' : 'Counted by'}</Label><Input id="stock-recipient" value={recipient} onChange={event => setRecipient(event.target.value)} placeholder="Staff full name" /></div>
           <div><Label htmlFor="stock-reference">Request or receipt reference (optional)</Label><Input id="stock-reference" value={reference} onChange={event => setReference(event.target.value)} placeholder="For example, STR-202609-00110" /></div>
         </div>
-        {(type === 'issue' || type === 'room_count') && <div className="grid sm:grid-cols-2 gap-4 max-w-xl"><div><Label>Room</Label><Select value={destination} onValueChange={setDestination}><SelectTrigger aria-label="Room"><SelectValue placeholder="Choose room" /></SelectTrigger><SelectContent>{STOCK_LOCATIONS.map(room => <SelectItem key={room} value={room}>{room}</SelectItem>)}</SelectContent></Select></div>{(type === 'issue' || type === 'room_count') && <div><Label>{type === 'issue' ? 'Shift receiving this pick' : 'Shift of this count'}</Label><Select value={shift} onValueChange={setShift}><SelectTrigger aria-label="Shift receiving this pick"><SelectValue placeholder="Choose shift" /></SelectTrigger><SelectContent>{STOCK_SHIFTS.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>}</div>}
+        {(type === 'issue' || type === 'room_count') && <div className="grid sm:grid-cols-2 gap-4 max-w-xl"><div><Label>{type === 'issue' ? 'Picked for' : 'Location counted'}</Label><Select value={destination} onValueChange={setDestination}><SelectTrigger aria-label="Room"><SelectValue placeholder={type === 'issue' ? 'Choose room' : 'Choose location'} /></SelectTrigger><SelectContent>{(type === 'issue' ? STOCK_LOCATIONS : COUNT_LOCATIONS).map(room => <SelectItem key={room} value={room}>{room === 'Shared' ? (type === 'issue' ? 'General Shared top-up' : 'Shared stock') : room}</SelectItem>)}</SelectContent></Select></div>{(type === 'issue' || type === 'room_count') && <div><Label>{type === 'issue' ? 'Shift receiving this pick' : 'Shift of this count'}</Label><Select value={shift} onValueChange={setShift}><SelectTrigger aria-label="Shift receiving this pick"><SelectValue placeholder="Choose shift" /></SelectTrigger><SelectContent>{STOCK_SHIFTS.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>}</div>}
         {(type === 'opening' || type === 'room_count') && <p className="text-sm text-amber-800 bg-amber-50 rounded-lg p-3">Count what is physically here now, including any recent collections. This replaces the recorded balance at this location; it does not add more stock. Room film counts use individual films, not packs.</p>}
         {type === 'receipt' && <p className="text-sm text-muted-foreground">You can save a collection before counting existing stock. The full balance will remain unconfirmed until counted. Do not add a collection again if a later physical count already included it.</p>}
-        {type === 'issue' && <p className="text-sm text-muted-foreground">All items except CT and MRI contrast go to Shared stock, even when a room is selected. {canBackdatePicks ? 'Past-date picks require confirmation because they change carried-forward balances.' : 'Record room picks for today. Ask Honey to record or correct a pick for a past date.'}</p>}
+        {type === 'issue' && <p className="text-sm text-muted-foreground">Each item goes where it belongs: MRI contrast to MRI, CT contrast to CT (or Fluoroscopy when picked for Fluoroscopy), everything else to Shared stock. The room you choose is kept so you can see who collected stock for whom. {canBackdatePicks ? 'Past-date picks require confirmation because they change carried-forward balances.' : 'Record room picks for today. Ask Honey to record or correct a pick for a past date.'}</p>}
         {view==='count'?<StockCheckTable items={items.filter(item=>type==='opening'||stockLocation(item.id,destination)===destination)} rooms={roomStock} location={type==='opening'?'Department stock':destination} counts={countDraft} onChange={(id,value)=>{setCountDraft(current=>({...current,[id]:value}));setConfirmed(false);}} />:<div className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-semibold">Items</h4><Button type="button" variant="outline" size="sm" onClick={() => setLines(current => [...current, newLine()])}><Plus className="w-4 h-4 mr-1" />Add item</Button></div>
           {lines.map((line, index) => { const item=items.find(candidate => candidate.id === line.itemId); const quantity=Number(line.quantity) || 0; return <div key={line.key} className="grid sm:grid-cols-[minmax(0,1fr)_9rem_10rem_2.5rem] gap-3 items-end rounded-lg border p-3">
             <div><Label>Item {index + 1}</Label><Select value={line.itemId} onValueChange={value => setLine(line.key, { itemId: value })}><SelectTrigger aria-label={`Item ${index + 1}`}><SelectValue placeholder="Choose item" /></SelectTrigger><SelectContent>{items.filter(candidate=>destination!=='Shared'||!['ct_contrast','mri_contrast'].includes(candidate.id)).map(candidate => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.unit})</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Quantity {item ? `(${item.unit})` : ''}</Label><Input aria-label={`Quantity for item ${index + 1}`} type="number" min={type === 'opening' || type === 'room_count' ? '0' : item && bottleCapacity(item.id) ? '0.01' : '1'} step={item && bottleCapacity(item.id) ? '0.01' : '1'} value={line.quantity} onChange={event => setLine(line.key, { quantity: event.target.value })} /></div>
-            <div className="text-sm text-muted-foreground">{item ? type === 'room_count' ? `Room count: ${quantity} ${roomUnit(item.id,item.unit)}` : <><span>Department stock: {item.opening_recorded ? `${item.balance} ${item.unit}` : 'balance awaiting stock count'}</span><br />{type === 'opening' ? `Counted now: ${quantity} ${item.unit}` : type === 'issue' ? `To ${stockLocation(item.id,destination)||'selected room'}: ${toRoomUnits(item.id,quantity)} ${roomUnit(item.id,item.unit)}` : `Adding: ${quantity} ${item.unit}`}</> : 'Select an item'}</div>
+            <div className="text-sm text-muted-foreground">{item ? type === 'room_count' ? `Room count: ${quantity} ${roomUnit(item.id,item.unit)}` : <><span>Department stock: {item.opening_recorded ? `${item.balance} ${item.unit}` : 'balance awaiting stock count'}</span><br />{type === 'opening' ? `Counted now: ${quantity} ${item.unit}` : type === 'issue' ? `Goes to ${isSharedItem(item.id)?'Shared stock':stockLocation(item.id,destination)+' room'}: ${toRoomUnits(item.id,quantity)} ${roomUnit(item.id,item.unit)}` : `Adding: ${quantity} ${item.unit}`}</> : 'Select an item'}</div>
             <Button type="button" variant="ghost" size="icon" aria-label={`Remove item ${index + 1}`} disabled={lines.length === 1} onClick={() => {if((line.itemId||line.quantity)&&!window.confirm('Remove this item from your unsaved entry? Cancel keeps the item.'))return;setLines(current => current.filter(candidate => candidate.key !== line.key));}}><Trash2 className="w-4 h-4" /></Button>
           </div>; })}
         </div>}
@@ -211,13 +235,14 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
         {editing.item_id.startsWith('film') && <p className="text-sm text-muted-foreground">{Number(editQuantity) || 0} films = {(Number(editQuantity) || 0) / 100} packs (100 films per pack).</p>}
         {error && <p role="alert" className="text-destructive">{error}</p>}
         <div className="flex gap-3"><Button disabled={saving} onClick={()=>void editReceipt(false)}>Save correction</Button><Button disabled={saving} variant="outline" onClick={()=>setEditing(null)}>Cancel</Button></div>
+        {editing.movement_type === 'issue' && canManageStock && editing.destination && moveTargets(editing).length > 0 && <div className="rounded-lg border p-3 space-y-2"><p className="text-sm font-medium">Picked into the wrong room?</p><p className="text-sm text-muted-foreground">Currently recorded in {editing.destination}. Moving it keeps the quantity and date and uses the reason above.</p><div className="flex flex-wrap gap-2 items-end"><Select value={moveRoom} onValueChange={setMoveRoom}><SelectTrigger className="w-48" aria-label="Move pick to room"><SelectValue placeholder="Choose correct room" /></SelectTrigger><SelectContent>{moveTargets(editing).map(room => <SelectItem key={room} value={room}>{room}</SelectItem>)}</SelectContent></Select><Button variant="outline" disabled={saving||!moveRoom} onClick={()=>void movePick()}>Move to correct room</Button></div></div>}
         {['receipt','issue'].includes(editing.movement_type) ? <><label className="flex gap-2 items-center text-sm"><input type="checkbox" checked={deleteConfirmed} onChange={e=>setDeleteConfirmed(e.target.checked)} />Remove this entry and reverse its stock movement</label><Button variant="destructive" disabled={saving||!deleteConfirmed} onClick={()=>void editReceipt(true)}>Delete entry</Button></> : <p className="text-sm text-muted-foreground">Counts establish the stock baseline. Correct the quantity; counts cannot be deleted.</p>}
       </section>}
       {view === 'access' && canManageStaff && <section className="dashboard-card p-5 space-y-3"><h3 className="font-bold text-lg">Staff login access</h3><p className="text-sm text-muted-foreground">Staff create and confirm their own login on the sign-in page. Approve their email here to allow daily picks and usage. Staff cannot add, edit or delete store collections.</p><label>Staff email<Input type="email" value={staffEmail} onChange={e=>setStaffEmail(e.target.value)} placeholder="Staff member’s personal email" /></label><div className="flex gap-3"><Button disabled={staffAccessSaving||!staffEmail.trim()} onClick={()=>void setStaffAccess(true)}>Approve staff login</Button><Button variant="outline" disabled={staffAccessSaving||!staffEmail.trim()} onClick={()=>void setStaffAccess(false)}>Remove staff access</Button></div></section>}
       {view === 'balances' && <>
       <section aria-label="Store and room balances" className="space-y-4"><p className="text-sm text-muted-foreground">All locations use the same units. A pick moves stock between locations. Uncounted locations prevent a confirmed total.</p>
         {loading ? <p role="status">Loading balances…</p> : items.length === 0 ? <p>No stock items are available yet.</p> : <div className="divide-y border-y">{items.map(item => {
-          const locations=['ct_contrast','mri_contrast'].includes(item.id)?STOCK_LOCATIONS.filter(r=>r!=='Shared'):['Shared'];
+          const locations=isSharedItem(item.id)?['Shared']:STOCK_ROOMS.filter(r=>stockLocation(item.id,r)===r||roomStock.some(row=>row.room===r&&row.item_id===item.id&&row.balance!==0));
           const rooms=locations.map(room => roomStock.find(row => row.room===room && row.item_id===item.id));
           const total=item.balance+rooms.reduce((sum,row) => sum+(row?.balance || 0),0);
           const known=item.opening_recorded && rooms.every(row => row?.counted_on);
@@ -249,10 +274,10 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
             <div><dt className="text-muted-foreground">Quantity</dt><dd>{row.quantity} {items.find(item => item.id === row.item_id)?.unit}</dd></div>
             <div><dt className="text-muted-foreground">Balance when recorded</dt><dd>{row.balance_known ? `${row.balance_after} ${items.find(item => item.id === row.item_id)?.unit}` : 'Awaiting count'}</dd></div>
             <div><dt className="text-muted-foreground">Received or picked by</dt><dd className="break-words">{row.recipient_name}</dd></div>
-            <div><dt className="text-muted-foreground">Destination</dt><dd>{[row.destination,row.shift].filter(Boolean).join(' · ') || '—'}</dd></div>
+            <div><dt className="text-muted-foreground">Destination</dt><dd>{destinationLabel(row) || '—'}</dd></div>
             <div><dt className="text-muted-foreground">Reference</dt><dd className="break-words">{row.reference || '—'}</dd></div>
           </dl>
-          {view==='pick'&&row.destination&&row.shift&&<Link className="text-primary underline text-sm" to={`/?date=${row.occurred_on}&room=${encodeURIComponent(row.destination)}&shift=${row.shift}`}>Open this room’s daily entry</Link>}
+          {view==='pick'&&(row.picked_for||row.destination!=='Shared')&&row.destination&&row.shift&&<Link className="text-primary underline text-sm" to={`/?date=${row.occurred_on}&room=${encodeURIComponent(row.picked_for||row.destination)}&shift=${row.shift}`}>Open this room’s daily entry</Link>}
         </article>)}{!loading && movements.length === 0 && <p className="p-5 text-muted-foreground">No shared movements recorded yet.</p>}</div>
       </section>}
         <div className="flex items-center gap-3"><Button variant="outline" disabled={loading || historyPage === 0} onClick={() => {setHistoryPage(page => page-1);setEditing(null);}}>Newer entries</Button><span className="text-sm text-muted-foreground">Page {historyPage+1}</span><Button variant="outline" disabled={loading || (historyLocation === 'store' ? movements : roomMovements).length < 50} onClick={() => {setHistoryPage(page => page+1);setEditing(null);}}>Older entries</Button></div>
