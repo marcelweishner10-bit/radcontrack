@@ -21,7 +21,7 @@ export type Database = {
         Relationships: []
       }
       room_shift_reviews: {
-        Row: {date:string;room:string;shift:string;details:Json;physical:Json;note:string;staff:string;stock_token:string;finished:boolean;version:number;updated_at:string}
+        Row: {date:string;room:string;shift:string;details:Json;physical:Json;note:string;staff:string;stock_token:string;finished:boolean;version:number;updated_at:string;entry_mode?:string}
         Insert: never
         Update: never
         Relationships: []
@@ -119,6 +119,12 @@ export type Database = {
         Update: { balance?: number; counted_on?: string | null; counted_at?: string | null }
         Relationships: []
       }
+      daily_stock_closes: {
+        Row: {date:string;details:Json;deductions:Json;staff:string;note:string;finished:boolean;version:number;stock_token:string;updated_at:string}
+        Insert: never
+        Update: never
+        Relationships: []
+      }
       stock_shift_usage: {
         Row: { date: string; room: string; shift: string; category: string; quantities: Json; contrast_volumes: Json; patients: number; version: number; recorded_by_name: string; updated_at: string }
         Insert: { date: string; room: string; shift: string; category: string; quantities?: Json; patients?: number; version?: number; recorded_by_name: string; updated_at?: string }
@@ -136,6 +142,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      daily_close_context: {Args:{p_date:string};Returns:Json}
+      contrast_shift_context: {Args:{p_date:string;p_room:string;p_shift:string};Returns:Json}
+      save_daily_close: {Args:{p_date:string;p_details:Json;p_staff:string;p_note:string;p_version:number;p_finish:boolean;p_token:string};Returns:number}
+      save_contrast_shift: {Args:{p_date:string;p_room:string;p_shift:string;p_details:Json;p_staff:string;p_version:number;p_film_version:number;p_supply_version:number;p_finish:boolean;p_physical:Json;p_note:string;p_token:string};Returns:number}
       shift_context: {Args:{p_date:string;p_room:string;p_shift:string};Returns:Json}
       save_shift: {Args:{p_date:string;p_room:string;p_shift:string;p_details:Json;p_staff:string;p_version:number;p_film_version:number;p_supply_version:number;p_finish:boolean;p_physical:Json;p_note:string;p_token:string};Returns:number}
       inventory_permissions: { Args: Record<string, never>; Returns: Json }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import type {Json} from '@/integrations/supabase/types';
 import { 
   DailyData, 
   ShiftType, 
@@ -21,6 +22,8 @@ export const useContrastData = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSave=useRef(0);
+  const [saveFeedback,setSaveFeedback]=useState({date:'',status:'idle',error:''});
   const { toast } = useToast();
 
   const dateKey = clinicalDateKey(selectedDate);
@@ -83,28 +86,38 @@ export const useContrastData = () => {
 
   // Debounced save to database
   const saveToDatabase = useCallback((newData: DailyData) => {
+    const attempt=++latestSave.current;
+    setSaveFeedback({date:dateKey,status:'pending',error:''});
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
     saveTimeoutRef.current = setTimeout(async () => {
+      if(attempt===latestSave.current)setSaveFeedback({date:dateKey,status:'saving',error:''});
       try {
-        const { error } = await (supabase
-          .from('daily_contrast_data') as any)
+        const { error } = await supabase
+          .from('daily_contrast_data')
           .upsert(
-            { date: dateKey, data: newData },
+            { date: dateKey, data: newData as unknown as Json },
             { onConflict: 'date' }
           );
 
         if (error) {
+          if(attempt===latestSave.current)setSaveFeedback({date:dateKey,status:'error',error:`Could not confirm automatic save: ${error.message}. Keep this page open and check the saved record before entering it again.`});
           console.error('Error saving data:', error);
           toast({ title: 'Error saving data', description: 'Unable to save data. Please try again or contact support.', variant: 'destructive' });
-        }
+        } else if(attempt===latestSave.current)setSaveFeedback({date:dateKey,status:'saved',error:''});
       } catch (err) {
+        if(attempt===latestSave.current)setSaveFeedback({date:dateKey,status:'error',error:`Could not confirm automatic save: ${err instanceof Error?err.message:'connection interrupted'}. Keep this page open and check the saved record before entering it again.`});
         console.error('Error saving data:', err);
       }
     }, 500);
   }, [dateKey, toast]);
+  useEffect(()=>{
+    if(!['pending','saving','error'].includes(saveFeedback.status))return;
+    const warn=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};
+    window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);
+  },[saveFeedback.status]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -352,6 +365,7 @@ export const useContrastData = () => {
     carriedFrom,
     connected,
     loadingError,
+    saveFeedback,
   };
 };
 

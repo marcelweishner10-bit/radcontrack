@@ -1,3 +1,4 @@
+import {ActionFeedback} from '@/components/ActionFeedback';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -13,7 +14,7 @@ type Flow = {id:string;name:string;unit:string;shared?:boolean;opening:number;re
 type Context = {items:Flow[];token:string};
 type RowLabel = 'Carried Over'|'Additional Stock Received'|'Physical Count Adjustment'|'Total Qty Available'|'Used Elsewhere'|'Total Consumption'|'Wastage'|'No. of Patients'|'Outstanding Stock'|'Review';
 const SECTIONS:[string,(id:string)=>boolean][]=[['Contrast',id=>contrasts.includes(id)],['Films printed',id=>isFilm(id)],['Other consumables',id=>!contrasts.includes(id)&&!isFilm(id)]];
-export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:string;shift:string;onDirtyChange:(value:boolean)=>void}) {
+export function UnifiedShift({date,room,shift,onDirtyChange,contrastOnly=false}:{date:string;room:string;shift:string;onDirtyChange:(value:boolean)=>void;contrastOnly?:boolean}) {
  const {user,canManageStock}=useAuth();
  const readOnly=!canEditUsageDay(date,user?.email,canManageStock);
  const [context,setContext]=useState<Context>({items:[],token:''});
@@ -24,6 +25,10 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
  const [finished,setFinished]=useState(false);const [dirty,setDirty]=useState(false);
  const [busy,setBusy]=useState(true);const [ready,setReady]=useState(false);
  const [error,setError]=useState('');const [message,setMessage]=useState('');
+ const [legacy,setLegacy]=useState(false);const [action,setAction]=useState('');
+ const contrastMode=contrastOnly&&!legacy;
+ const savedMessage=/^(Progress saved|Shift finished|Shift saved)/.test(message);
+ const visibleItems=context.items.filter(i=>!contrastMode||contrasts.includes(i.id));
  const draftKey=`radcontrack-unified-${date}-${room}-${shift}`;
  useEffect(()=>onDirtyChange(dirty),[dirty,onDirtyChange]);
  const load=useCallback(async()=>{
@@ -35,7 +40,9 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
     supabase.from('stock_shift_usage').select('*').eq('date',date).eq('room',room).eq('shift',shift),
    ]);
    if(flow.error||review.error||usage.error) throw new Error(flow.error?.message||review.error?.message||usage.error?.message);
-   const ctx=flow.data as unknown as Context;const row=review.data;
+   let ctx=flow.data as unknown as Context;const row=review.data;
+   const earlier=!!row&&row.entry_mode!=='contrast';setLegacy(earlier);
+   if(contrastOnly&&!earlier){const contrastFlow=await supabase.rpc('contrast_shift_context',{p_date:date,p_room:room,p_shift:shift});if(contrastFlow.error)throw new Error(contrastFlow.error.message);ctx=contrastFlow.data as unknown as Context;}
    const old:ShiftDetails={};const totals:Record<string,number>={};
    for(const u of usage.data||[]) for(const [id,amount] of Object.entries(u.quantities as Record<string,number>)) {
     totals[id]=amount;
@@ -60,7 +67,7 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
    setReady(true);
   } catch(e) {setError(e instanceof Error?e.message:'Unable to load the shift.');}
   finally {setBusy(false);}
- },[date,room,shift,draftKey]);
+ },[date,room,shift,draftKey,contrastOnly]);
  useEffect(()=>{void load();},[load]);
  useEffect(()=>{
   if(!dirty)return;
@@ -74,40 +81,44 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
   setDirty(true);setFinished(false);
  };
  const remaining=(item:Flow)=>details[item.id]===undefined?item.remaining:Number((item.remaining+(saved[item.id]||0)-quantityUsed(details[item.id])).toFixed(2));
- const unreviewed=context.items.filter(item=>!details[item.id]?.reviewed);
+ const unreviewed=visibleItems.filter(item=>!details[item.id]?.reviewed);
  const save=async(finish:boolean)=>{
+  if(busy)return;
   if(readOnly){setError('Staff can edit today or yesterday only. Ask Honey to correct an older day.');return;}
   setError('');setMessage('');
   if(staff.trim().length<2){setError('Enter your name in “Recorded by”.');return;}
-  for(const item of context.items) {
+  for(const item of visibleItems) {
    if(!details[item.id] && !finish)continue;
    const problem=validateDetail(item.id,details[item.id]||{},finish);
    if(problem){setError(`${item.name}: ${problem}`);return;}
   }
-  const payload=Object.fromEntries(Object.entries(details).filter(([id])=>context.items.some(i=>i.id===id)).map(([id,d])=>[id,{...d,used:d.used||0,waste:d.waste||0,patients:d.patients||0}]));
+  const payload=Object.fromEntries(Object.entries(details).filter(([id])=>visibleItems.some(i=>i.id===id)).map(([id,d])=>[id,{...d,used:d.used||0,waste:d.waste||0,patients:d.patients||0}]));
   const existing=versions.review>0||versions.films>0||versions.supplies>0;
   if ((existing||finish)&&!window.confirm(`${finish?'Finish this shift?':'Update this saved shift?'}\n\n${date} · ${room} · ${shift}\n\n${existing?'This replaces the saved usage and recalculates balances carried into later shifts.':'This saves usage for every item and hands the remaining balances to the next shift.'}\n\nCancel keeps your entries without saving.`)) return;
-  setBusy(true);
+  setAction(finish?'Finishing shift…':'Saving progress…');setBusy(true);
   try {
-   const result=await supabase.rpc('save_shift',{p_date:date,p_room:room,p_shift:shift,p_details:payload as Json,p_staff:staff.trim(),p_version:versions.review,p_film_version:versions.films,p_supply_version:versions.supplies,p_finish:finish,p_physical:{},p_note:note,p_token:context.token});
+   const result=await supabase.rpc(contrastMode?'save_contrast_shift':'save_shift',{p_date:date,p_room:room,p_shift:shift,p_details:payload as Json,p_staff:staff.trim(),p_version:versions.review,p_film_version:versions.films,p_supply_version:versions.supplies,p_finish:finish,p_physical:{},p_note:note,p_token:context.token});
    if(result.error)throw new Error(result.error.message);
-   const left=context.items.filter(item=>!(payload as ShiftDetails)[item.id]?.reviewed).map(item=>item.name);
-   localStorage.removeItem(draftKey);await load();
+   const left=visibleItems.filter(item=>!(payload as ShiftDetails)[item.id]?.reviewed).map(item=>item.name);
+   setMessage(finish?'Shift saved and finished.':'Progress saved.');
+   setDirty(false);localStorage.removeItem(draftKey);await load();
    setMessage(finish?'Shift finished. Remaining balances carry into the next shift.':`Progress saved. The shift is not finished yet.${left.length?` Still to review: ${left.join(', ')}.`:' Every item is reviewed; choose Finish shift when you hand over.'}`);
   } catch(e){setError(e instanceof Error?e.message:'Unable to save. Your entry is still here.');}
-  finally{setBusy(false);}
+  finally{setBusy(false);setAction('');}
  };
 
  return <section className="space-y-7">
+  {contrastOnly&&legacy&&<p role="status" className="text-sm text-muted-foreground">Earlier shift record — kept in its original format. Daily close includes quantities already recorded here.</p>}
+  {ready&&contrastMode&&!visibleItems.length&&<p role="status">This room has no routine contrast entry. Record films and consumables under Daily close.</p>}
   {readOnly&&<p role="status">Reference only. Staff can edit today or yesterday. Honey can correct older days.</p>}
   <fieldset disabled={readOnly} className="contents">
   <div className="flex flex-wrap items-end justify-between gap-4"><label className="text-sm">Recorded by<Input value={staff} disabled={busy} placeholder="Your full name" onChange={e=>{setStaff(e.target.value);setDirty(true);}} /></label>
-   <p className="text-sm font-medium" aria-live="polite">{finished?'Shift finished':dirty?'Unsaved changes':versions.review||versions.films||versions.supplies?'Progress saved, not finished':'Nothing saved yet'}{ready&&context.items.length>0&&` · ${context.items.length-unreviewed.length} of ${context.items.length} items reviewed`}</p></div>
+   <p className="text-sm font-medium" aria-live="polite">{finished?'Shift finished':dirty?'Unsaved changes':versions.review||versions.films||versions.supplies?'Progress saved, not finished':'Nothing saved yet'}{ready&&visibleItems.length>0&&` · ${visibleItems.length-unreviewed.length} of ${visibleItems.length} items reviewed`}</p></div>
   <p className="text-sm text-muted-foreground">Balances carry forward automatically. <Link className="underline text-primary" onClick={e=>{if(dirty){e.preventDefault();setError('Save progress before recording a pickup or top-up.');}}} to={`/stock/pick?room=${encodeURIComponent(room)}&shift=${shift}&date=${date}`}>Record a pickup or top-up</Link>, then reload this shift.</p>
-  {error&&<p role="alert" className="text-destructive">{error}</p>}{message&&<p role="status">{message}</p>}
+
   {!ready&&<p>{busy?'Loading shift…':'The shift could not load. Reload the page or try again shortly.'}</p>}
   {ready&&SECTIONS.map(([title,filter])=>{
-   const items=context.items.filter(i=>filter(i.id));if(!items.length)return null;
+   const items=visibleItems.filter(i=>filter(i.id));if(!items.length)return null;
    const contrast=title==='Contrast';
    const shared=items.some(i=>i.shared);
    const labels:RowLabel[]=['Carried Over','Additional Stock Received',...(items.some(i=>i.adjustment!==0)?['Physical Count Adjustment' as const]:[]),'Total Qty Available',...(shared?['Used Elsewhere' as const]:[]),'Total Consumption',...(contrast?['Wastage' as const]:[]),...(title==='Other consumables'?[]:['No. of Patients' as const]),'Outstanding Stock','Review'];
@@ -139,11 +150,12 @@ export function UnifiedShift({date,room,shift,onDirtyChange}:{date:string;room:s
      {items.filter(i=>!details[i.id]&&saved[i.id]>0).map(item=><p key={item.id} className="text-xs text-muted-foreground">{item.name}: {saved[item.id]} {item.unit} already deducted from an earlier entry. Enter the breakdown to review it; it stays unchanged until corrected.</p>)}
    </section>;
   })}
-  {ready&&<section className="border-t pt-5 space-y-3" aria-label="Finish shift"><h2 className="text-lg font-bold">Finish shift</h2>
+  {ready&&visibleItems.length>0&&<section className="border-t pt-5 space-y-3" aria-label="Finish shift"><h2 className="text-lg font-bold">Finish shift</h2>
    <p className="text-sm text-muted-foreground">Finish when every item above is reviewed: enter what was used, or choose None used. You do not need to count stock to finish.{unreviewed.length>0&&` Still to review: ${unreviewed.map(i=>i.name).join(', ')}.`}</p>
    <p className="text-sm text-muted-foreground">Physically counted something? Record it under <Link className="underline text-primary" to="/stock/count">Stock check</Link>. A count replaces the recorded balance; it does not add stock.</p>
    <label className="block text-sm max-w-xl">Handover note (optional)<Input value={note} disabled={busy} onChange={e=>{setNote(e.target.value);setDirty(true);}}/></label>
   </section>}
-  <div className="flex flex-wrap gap-3"><Button disabled={busy||!ready||!dirty} onClick={()=>void save(false)}>{busy?'Saving / loading…':'Save progress'}</Button><Button variant="secondary" disabled={busy||!ready} onClick={()=>void save(true)}>Finish shift</Button><Button variant="outline" disabled={busy} onClick={()=>{if(dirty&&!window.confirm('Discard your unsaved changes and reload?'))return;localStorage.removeItem(draftKey);void load();}}>Reload shift</Button></div>
- </fieldset></section>;
+  {ready&&!dirty&&!busy&&visibleItems.length>0&&<p className="text-xs text-muted-foreground">Enter or change a value to enable Save progress.</p>}
+  <div className="flex flex-wrap gap-3"><Button disabled={busy||!ready||!dirty||!visibleItems.length} onClick={()=>void save(false)}>{action==='Saving progress…'?'Saving…':busy?'Loading…':'Save progress'}</Button><Button variant="secondary" disabled={busy||!ready||!visibleItems.length} onClick={()=>void save(true)}>{action==='Finishing shift…'?'Finishing…':'Finish shift'}</Button><Button variant="outline" disabled={busy} onClick={()=>{if(dirty&&!window.confirm('Discard your unsaved changes and reload?'))return;localStorage.removeItem(draftKey);void load();}}>Reload shift</Button></div>
+ </fieldset><ActionFeedback busy={!!action} busyLabel={action} error={error} success={!dirty&&savedMessage?message:''} info={!savedMessage?message:''} onDismiss={()=>{setError('');setMessage('');}}/></section>;
 }

@@ -13,7 +13,7 @@ import { Download, Film, Boxes } from 'lucide-react';
 const ROOMS = STOCK_ROOMS;
 const perPatient = (films: number, patients: number) => patients > 0 ? (films / patients).toFixed(2) : '—';
 const SHIFTS = ['morning', 'afternoon', 'night'];
-type FilmRow = { date: string; room: string; patients: number; film1714: number; film1210: number; patients1714: number | null; patients1210: number | null };
+type FilmRow = { date: string; room: string; patients: number|null; film1714: number; film1210: number; patients1714: number | null; patients1210: number | null };
 type IssueRow = { id: string; date: string; itemName: string; quantity: number; unit: string; expectedBalance: number; issuedBy: string };
 
 export function FilmAndStoreReport({ start, end }: { start: Date; end: Date }) {
@@ -21,6 +21,7 @@ export function FilmAndStoreReport({ start, end }: { start: Date; end: Date }) {
   const endKey = format(end, 'yyyy-MM-dd');
   const [reviews,setReviews]=useState<Tables<'room_shift_reviews'>[]>([]);
   const [shared,setShared]=useState<Tables<'stock_shift_usage'>[]>([]);
+  const [closes,setCloses]=useState<Tables<'daily_stock_closes'>[]>([]);
   const [sharedMovements,setSharedMovements]=useState<Tables<'stock_movements'>[]>([]);
   const [reportError,setReportError]=useState('');
   const [catalogue,setCatalogue]=useState<Tables<'stock_items'>[]>([]);
@@ -29,6 +30,12 @@ export function FilmAndStoreReport({ start, end }: { start: Date; end: Date }) {
     const load=async()=>{
       setShared([]);setSharedMovements([]);
       const usage:Tables<'stock_shift_usage'>[]=[];
+      const dailyRows:Tables<'daily_stock_closes'>[]=[];
+      for(let offset=0;;offset+=1000){
+        const result=await supabase.from('daily_stock_closes').select('*').gte('date',startKey).lte('date',endKey).order('date').range(offset,offset+999);
+        if(result.error){if(active)setReportError(result.error.message);return;}
+        dailyRows.push(...result.data);if(result.data.length<1000)break;
+      }
       const reviewRows:Tables<'room_shift_reviews'>[]=[];
       for(let offset=0;;offset+=1000){
         const result=await supabase.from('room_shift_reviews').select('*').gte('date',startKey).lte('date',endKey).order('date').order('room').order('shift').range(offset,offset+999);
@@ -48,7 +55,16 @@ export function FilmAndStoreReport({ start, end }: { start: Date; end: Date }) {
         if(result.error){if(active)setReportError(result.error.message);return;}
         movements.push(...result.data);if(result.data.length<1000)break;
       }
-      if(active){setShared(usage);setReviews(reviewRows);setSharedMovements(movements);setCatalogue(itemResult.data);setReportError('');}
+      // Daily closes store ONLY the extra deduction beyond original shift usage.
+      // Add those deductions to reports once; historical rows remain untouched.
+      for(const row of dailyRows){
+        const byRoom:Record<string,Record<string,number>>={};
+        for(const [key,quantity] of Object.entries(row.deductions as Record<string,number>)){
+          const [room,id]=key.split('|');(byRoom[room]||={})[id]=quantity;
+        }
+        for(const [room,quantities] of Object.entries(byRoom))usage.push({date:row.date,room,shift:'daily',category:room==='Shared'?'supplies':'films',quantities,contrast_volumes:{},patients:0,version:row.version,recorded_by_name:row.staff,updated_at:row.updated_at});
+      }
+      if(active){setShared(usage);setCloses(dailyRows);setReviews(reviewRows);setSharedMovements(movements);setCatalogue(itemResult.data);setReportError('');}
     };
     void load();return()=>{active=false;};
   },[startKey,endKey]);
@@ -78,6 +94,12 @@ export function FilmAndStoreReport({ start, end }: { start: Date; end: Date }) {
           row.film1714 += sharedRow ? values?.film1714||0 : Number(saved[room]?.['17 × 14']) || 0;
           row.film1210 += sharedRow ? values?.film1210||0 : Number(saved[room]?.['12 × 10']) || 0;
         }
+        const closed=closes.find(c=>c.date===date)?.details as Record<string,{used:number;patients?:number}>|undefined;
+        for(const [id,patientKey] of [['film1714','patients1714'],['film1210','patients1210']] as const){
+          const quantity=closed?.[`${room}|${id}`];if(!quantity)continue;
+          // A reviewed whole-day target takes precedence over browser-only film entries too.
+          row[id]=quantity.used;row[patientKey]=quantity.patients??(quantity.used>0?null:0);row.patients=null;
+        }
         if (row.patients || row.film1714 || row.film1210) filmRows.push(row);
       }
     }
@@ -85,7 +107,7 @@ export function FilmAndStoreReport({ start, end }: { start: Date; end: Date }) {
     try { allIssues = JSON.parse(localStorage.getItem('radcontrack-issue-register') || '[]'); } catch { /* no usable local issues */ }
     const issueRows = allIssues.filter(issue => issue.date >= startKey && issue.date <= endKey).sort((a, b) => a.date.localeCompare(b.date));
     return { filmRows, issueRows };
-  }, [startKey, endKey, shared, reviews]);
+  }, [startKey, endKey, shared, reviews, closes]);
 
   const film1714 = filmRows.reduce((sum, row) => sum + row.film1714, 0);
   const usageTotals=shared.reduce<Record<string,number>>((totals,row)=>{for(const [item,quantity] of Object.entries(row.quantities as Record<string,number>))totals[item]=(totals[item]||0)+quantity;return totals;},{});
@@ -103,6 +125,7 @@ export function FilmAndStoreReport({ start, end }: { start: Date; end: Date }) {
   };
 
   return <div className="space-y-6">
+    <Card><CardHeader><CardTitle className="text-base">Daily close status</CardTitle></CardHeader><CardContent><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Status</TableHead><TableHead>Closed by</TableHead><TableHead>Note</TableHead></TableRow></TableHeader><TableBody>{closes.map(c=><TableRow key={c.date}><TableCell>{c.date}</TableCell><TableCell>{c.finished?'Closed (check stock changes on daily page)':'Progress saved'}</TableCell><TableCell>{c.staff}</TableCell><TableCell>{c.note||'—'}</TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card>
     {reportError&&<p role="alert" className="text-destructive">Shared report could not load: {reportError}. Browser entries below are incomplete.</p>}
     <Card><CardHeader><CardTitle className="text-base">Shared stock actually used</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-4 mb-4">{Object.entries(usageTotals).filter(([,quantity])=>quantity>0).map(([item,quantity])=><p key={item} className="text-sm"><strong>{catalogue.find(entry=>entry.id===item)?.name||item}:</strong> {stockAmount(item,quantity)} {!bottleCapacity(item)&&roomUnit(item,catalogue.find(entry=>entry.id===item)?.unit||'units')}</p>)}</div><div className="overflow-x-auto"><Table><TableHeader><TableRow>{['Date','Room','Shift','Item','Used','Recorded by'].map(label=><TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>{shared.flatMap(row=>Object.entries(row.quantities as Record<string,number>).filter(([,quantity])=>quantity>0).map(([item,quantity])=><TableRow key={`${row.date}-${row.room}-${row.shift}-${item}`}><TableCell>{row.date}</TableCell><TableCell>{row.room}</TableCell><TableCell>{row.shift}</TableCell><TableCell>{catalogue.find(entry=>entry.id===item)?.name||item}</TableCell><TableCell>{stockAmount(item,quantity)} {!bottleCapacity(item)&&roomUnit(item,catalogue.find(entry=>entry.id===item)?.unit||'units')}{breakdown(row,item)}</TableCell><TableCell>{row.recorded_by_name}</TableCell></TableRow>))}</TableBody></Table></div></CardContent></Card>
     <Card><CardHeader><CardTitle className="text-base">Shared picks from store</CardTitle></CardHeader><CardContent><div className="overflow-x-auto"><Table><TableHeader><TableRow>{['Date','Picked for','Goes to','Shift','Item','Picked','Picked by'].map(label=><TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>{sharedMovements.map(row=><TableRow key={row.id}><TableCell>{row.occurred_on}</TableCell><TableCell>{row.picked_for||'—'}</TableCell><TableCell>{row.destination==='Shared'?'Shared stock':row.destination}</TableCell><TableCell>{row.shift}</TableCell><TableCell>{catalogue.find(entry=>entry.id===row.item_id)?.name||row.item_id}</TableCell><TableCell>{row.quantity} {catalogue.find(entry=>entry.id===row.item_id)?.unit}</TableCell><TableCell>{row.recipient_name}</TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card>

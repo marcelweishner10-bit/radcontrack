@@ -19,6 +19,18 @@ beforeEach(() => { vi.stubGlobal('crypto', { randomUUID: () => 'test-line' }); v
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('shared stock access', () => {
+  it('keeps correction values and releases the save button after a rejected request',async()=>{
+    access.canManageStock=true;access.canManageStaff=false;
+    access.movements=[{id:'receipt',item_id:'gastrolux',quantity:200,occurred_on:'2026-10-08',recipient_name:'Honey',reference:'R1',version:1,movement_type:'receipt'}];
+    vi.mocked(supabase.rpc).mockRejectedValueOnce(new Error('Network interrupted'));
+    render(<MemoryRouter><SharedStock view="history"/></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button',{name:'Edit / delete'}));
+    fireEvent.change(screen.getByPlaceholderText('For example, entered 10000 instead of 100 films'),{target:{value:'Wrong quantity'}});
+    fireEvent.click(screen.getByRole('button',{name:'Save correction'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network interrupted');
+    expect(screen.getByRole('button',{name:'Save correction'})).toBeEnabled();
+    expect(screen.getByPlaceholderText('For example, entered 10000 instead of 100 films')).toHaveValue('Wrong quantity');
+  });
   it.each([false,true])('cancel blocks stock correction/deletion (delete=%s)',async(remove)=>{
     access.canManageStock=true;access.canManageStaff=false;
     access.movements=[{id:'receipt',item_id:'gastrolux',quantity:200,occurred_on:'2026-10-08',recipient_name:'Honey',reference:'R1',version:1,movement_type:'receipt'}];

@@ -14,6 +14,23 @@ beforeEach(()=>{
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 const setup=async()=>{render(<MemoryRouter><UnifiedShift date="2026-10-07" room="CT" shift="morning" onDirtyChange={()=>{}}/></MemoryRouter>);await screen.findByLabelText('CT Contrast Used for patients (ml)');};
 describe('connected shift form',()=>{
+ it('new contrast mode finishes without asking for films or other consumables',async()=>{
+  mock.rpc.mockImplementation(async(name:string)=>({error:null,data:name==='shift_context'||name==='contrast_shift_context'?{token:'one',items:[{id:'ct_contrast',name:'CT Contrast',unit:'ml',opening:100,received:0,adjustment:0,remaining:100,known:true},{id:'film1714',name:'17 × 14 film',unit:'films',opening:20,received:0,adjustment:0,remaining:20,known:true}]}:1}));
+  render(<MemoryRouter><UnifiedShift date="2026-11-02" room="CT" shift="morning" onDirtyChange={()=>{}} contrastOnly/></MemoryRouter>);
+  await screen.findByLabelText('CT Contrast Used for patients (ml)');
+  expect(screen.queryByLabelText('17 × 14 film Films printed')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText('Your full name'),{target:{value:'Honey'}});
+  fireEvent.click(screen.getByRole('button',{name:'None used'}));vi.spyOn(window,'confirm').mockReturnValue(true);
+  fireEvent.click(screen.getByRole('button',{name:'Finish shift'}));
+  await waitFor(()=>expect(mock.rpc).toHaveBeenCalledWith('save_contrast_shift',expect.objectContaining({p_finish:true,p_details:{ct_contrast:{used:0,waste:0,patients:0,reviewed:true}}})));
+ });
+ it('keeps earlier saved shifts in the full original table even from the new entry point',async()=>{
+  mock.from.mockImplementation((table:string)=>{const result={data:table==='stock_shift_usage'?[]:{version:1,entry_mode:'legacy',stock_token:'one',details:{ct_contrast:{used:10,waste:0,patients:1},film1714:{used:4,patients:2}},staff:'Honey',note:''},error:null};const query={select:()=>query,eq:()=>query,maybeSingle:()=>Promise.resolve(result),then:(resolve:(v:unknown)=>unknown)=>Promise.resolve(result).then(resolve)};return query;});
+  render(<MemoryRouter><UnifiedShift date="2026-10-07" room="CT" shift="morning" onDirtyChange={()=>{}} contrastOnly/></MemoryRouter>);
+  expect(await screen.findByLabelText('17 × 14 film Films printed')).toHaveValue(4);
+  expect(screen.getByText(/kept in its original format/)).toBeInTheDocument();
+  expect(mock.rpc.mock.calls.some(c=>c[0]==='contrast_shift_context')).toBe(false);
+ });
  it('cancel prevents replacing saved usage and keeps the correction draft',async()=>{
   mock.from.mockImplementation((table:string)=>{const result={data:table==='stock_shift_usage'?[]:{version:1,stock_token:'one',details:{ct_contrast:{used:10,waste:0,patients:1}},staff:'Honey',physical:{},note:''},error:null};const query={select:()=>query,eq:()=>query,maybeSingle:()=>Promise.resolve(result),then:(resolve:(v:unknown)=>unknown)=>Promise.resolve(result).then(resolve)};return query;});
   const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);

@@ -1,3 +1,4 @@
+import {ActionFeedback} from '@/components/ActionFeedback';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
@@ -69,6 +70,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    try {
     let pickQuery = view === 'pick' ? supabase.from('stock_movements').select('*').eq('movement_type','issue').eq('occurred_on',date) : null;
     if (pickQuery && destination) pickQuery = destination==='Shared' ? pickQuery.eq('destination','Shared') : pickQuery.or(`destination.eq.${destination},picked_for.eq.${destination}`);
     if (pickQuery && shift) pickQuery = pickQuery.eq('shift',shift);
@@ -85,9 +87,8 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
       setMovements(movementResult.data || []);
       setRoomStock(roomResult.data || []);
       setRoomMovements(roomMovementResult.data || []);
-      setError('');
     }
-    setLoading(false);
+    } catch(e) {setError(`Could not refresh stock: ${e instanceof Error?e.message:'check your connection'}. Reload the record before entering it again.`);} finally {setLoading(false);}
   }, [view,historyLocation,historyPage,date,destination,shift]);
   useEffect(()=>{setHistoryPage(0);setEditing(null);},[date,destination,shift]);
 
@@ -109,6 +110,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
   };
 
   const save = async () => {
+    if(saving)return;
     setError(''); setNotice('');
     if ((type === 'receipt' || type === 'opening') && !canManageStock) { setError('Only the administrator can manage store receipts and counts.'); return; }
     const countEntry=type==='opening'||type==='room_count';
@@ -120,6 +122,7 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
     const chosen = entryLines.map(line=>({item:line.item,quantity:Number(line.quantity)}));
     if (countEntry && !window.confirm(`Save this physical count for ${type==='opening'?'department stock':destination}? This replaces the recorded balance and affects stock carried forward. It does not add stock. Cancel keeps your entries.`)) return;
     setSaving(true);
+    try {
     const { error: saveError } = await supabase.rpc('move_room_stock_units', {
       p_type: type,
       p_date: date,
@@ -130,24 +133,26 @@ export default function SharedStock({ view = 'pick' }: { view?: StockView }) {
       p_reference: reference.trim() || null,
       p_request: requestId,
     });
-    setSaving(false);
     if (saveError) { setError(saveError.message); return; }
     setNotice(`${typeLabels[type]} saved.${type === 'issue' ? ' Stock moved to its room or Shared stock; it has not been consumed.' : ''} Uncounted balances remain awaiting a physical count.`);
     setLines([newLine()]); setReference(''); if(type!=='issue')setDestination(''); setConfirmed(false);
     setCountDraft({});
     setRequestId(crypto.randomUUID());
     await refresh();
+    } catch(e) {setError(`Could not confirm the action: ${e instanceof Error?e.message:'connection interrupted'}. Your entries are still here. Reload the record before trying again.`);} finally {setSaving(false);}
   };
 
   // Contrast picked into the wrong room: only the two room balances change, never department stock.
   const moveTargets = (row: Correction) => row.movement_type !== 'issue' || !row.destination || isSharedItem(row.item_id) ? [] : STOCK_ROOMS.filter(room => room !== row.destination && (row.item_id === 'mri_contrast' ? room === 'MRI' : room === 'CT' || room === 'Fluoroscopy'));
   const beginCorrection = (row: Correction) => {
+    setError('');setNotice('');
     setEditing(row); setEditQuantity(String(row.quantity)); setEditDate(row.occurred_on);
     setEditRecipient(row.recipient_name); setEditReference(row.reference || '');
     setEditReason(''); setDeleteConfirmed(false);
     const targets = moveTargets(row); setMoveRoom(targets.length === 1 ? targets[0] : '');
   };
   const movePick = async () => {
+    if(saving)return;
     if (!editing || !moveRoom) return;
     if (editReason.trim().length < 5) { setError('Enter the reason for moving this pick, for example where it actually went.'); return; }
     const item=items.find(item=>item.id===editing.item_id);
@@ -160,13 +165,15 @@ ${editing.destination} goes down and ${moveRoom} goes up by the same amount from
 
 Cancel keeps the existing record.`)) return;
     setSaving(true); setError(''); setNotice('');
+    try {
     const result = await supabase.rpc('correct_pick_room', { p_store_id: editing.id, p_version: editing.version, p_room: moveRoom, p_reason: editReason.trim() });
-    setSaving(false);
     if (result.error) { setError(result.error.message); return; }
     setEditing(null); setNotice(`Pick moved to ${moveRoom}. Both rooms' balances are updated and the original is kept in audit history.`);
     await refresh();
+    } catch(e) {setError(`Could not confirm the change: ${e instanceof Error?e.message:'connection interrupted'}. Your entries are still here. Reload the record before trying again.`);} finally {setSaving(false);}
   };
   const editReceipt = async (remove: boolean) => {
+    if(saving)return;
     if (!editing || (remove && !deleteConfirmed)) return;
     if (editReason.trim().length < 3) { setError('Enter the reason for this correction.'); return; }
     if (editing.movement_type === 'issue' && (editing.occurred_on < today || editDate < today)) {
@@ -176,30 +183,33 @@ Cancel keeps the existing record.`)) return;
     const backdated=editing.movement_type==='issue' && (editing.occurred_on<today || editDate<today);
     if (!window.confirm(`${remove?'Delete this stock entry?':'Save this stock correction?'}\n\n${item?.name||editing.item_id}\n${remove?`${editing.quantity} ${item?.unit||''} on ${editing.occurred_on}`:`Quantity: ${editing.quantity} → ${editQuantity} ${item?.unit||''}\nDate: ${editing.occurred_on} → ${editDate}\nName: ${editing.recipient_name} → ${editRecipient}`}\n\n${remove?'The stock movement will be reversed.':'Affected balances will be recalculated.'} Later carryover may change. The original stays in audit history.${backdated?`\n\n${PAST_PICK_WARNING}`:''}\n\nCancel keeps the existing record.`)) return;
     setSaving(true); setError(''); setNotice('');
+    try {
     const result = await supabase.rpc('correct_stock_movement', { p_source: editing.source, p_id: editing.id, p_version: editing.version, p_quantity: Number(editQuantity), p_date: editDate, p_staff: editRecipient, p_reference: editReference || null, p_reason: editReason.trim(), p_delete: remove });
-    setSaving(false);
     if (result.error) { setError(result.error.message.includes('Could not find the function') ? 'The correction database update has not been applied yet. Apply the stock movement corrections SQL first.' : result.error.message); return; }
     setEditing(null); setNotice(remove ? 'Entry removed and affected balances updated. Its audit history is retained.' : editing.movement_type==='issue' ? 'Pick corrected. Additional stock received, room stock and department stock are updated. Reopen the daily entry to see the corrected figures. The original is retained in audit history.' : 'Entry corrected and affected balances updated. The original record is retained in the audit history.');
     await refresh();
+    } catch(e) {setError(`Could not confirm the change: ${e instanceof Error?e.message:'connection interrupted'}. Your entries are still here. Reload the record before trying again.`);} finally {setSaving(false);}
   };
   const setStaffAccess = async (active: boolean) => {
     if (!window.confirm(`${active?'Approve':'Remove'} access for ${staffEmail.trim()}? ${active?'This allows daily picks and usage.':'They will no longer be able to use the app with this login.'}`)) return;
+    if(staffAccessSaving)return;
     setStaffAccessSaving(true); setError(''); setNotice('');
+    try {
     const { error } = await supabase.rpc('set_stock_staff', { p_email: staffEmail.trim(), p_active: active });
-    setStaffAccessSaving(false);
     if (error) setError(error.message); else { setNotice(active ? 'Staff login approved for daily picks and usage.' : 'Staff access removed.'); setStaffEmail(''); }
+    } catch(e) {setError(`Could not confirm access change: ${e instanceof Error?e.message:'check connection'}. Reload before trying again.`);} finally {setStaffAccessSaving(false);}
   };
 
   const formVisible = ['pick','receive','count'].includes(view) && (view !== 'receive' || canManageStock);
   return <div className="min-h-screen bg-background">
     <AppNavigation />
-    <main className="max-w-6xl mx-auto px-5 py-7 space-y-6">
+    <main className="max-w-6xl mx-auto px-5 py-7 space-y-6" onChangeCapture={()=>setNotice('')}><fieldset disabled={saving||staffAccessSaving} className="contents">
       <StockNavigation />
       <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-bold">{viewTitles[view]}</h1><p className="text-muted-foreground mt-1 max-w-prose">{viewHelp[view]}</p></div><Button variant="outline" onClick={() => void refresh()} disabled={loading}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button></div>
       {view === 'receive' && !canManageStock && <p role="alert">Receiving stock requires an authorised stock-editor login. You can still record daily picks and usage.</p>}
       {view === 'access' && !canManageStaff && <p role="alert">Staff access requires the administrator login.</p>}
-      {error && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 text-red-800 p-4">{error}</div>}
-      {notice && <div role="status" className="rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 p-4">{notice}</div>}
+
+
       {view==='pick' && destination && shift && <Link className="text-primary underline text-sm" to={`/?room=${encodeURIComponent(destination)}&shift=${shift}&date=${date}`}>Return to this room’s daily entry</Link>}
 
       {formVisible && <section className="dashboard-card p-5 space-y-5">
@@ -233,10 +243,10 @@ Cancel keeps the existing record.`)) return;
         <div className="grid md:grid-cols-4 gap-3"><label>Date<Input type="date" disabled={editing.movement_type === 'opening' || editing.movement_type === 'count'} value={editDate} onChange={e=>setEditDate(e.target.value)} /></label><label>Quantity ({items.find(item=>item.id===editing.item_id)?.unit})<Input type="number" min={editing.movement_type === 'opening' || editing.movement_type === 'count' ? '0' : bottleCapacity(editing.item_id)?'0.01':'1'} step={bottleCapacity(editing.item_id)?'0.01':'1'} value={editQuantity} onChange={e=>setEditQuantity(e.target.value)} /></label><label>Received, picked or counted by<Input value={editRecipient} onChange={e=>setEditRecipient(e.target.value)} /></label>{editing.source === 'store' && <label>Reference<Input value={editReference} onChange={e=>setEditReference(e.target.value)} /></label>}</div>
         <label className="block">Reason for correction<Input value={editReason} onChange={e=>setEditReason(e.target.value)} placeholder="For example, entered 10000 instead of 100 films" /></label>
         {editing.item_id.startsWith('film') && <p className="text-sm text-muted-foreground">{Number(editQuantity) || 0} films = {(Number(editQuantity) || 0) / 100} packs (100 films per pack).</p>}
-        {error && <p role="alert" className="text-destructive">{error}</p>}
-        <div className="flex gap-3"><Button disabled={saving} onClick={()=>void editReceipt(false)}>Save correction</Button><Button disabled={saving} variant="outline" onClick={()=>setEditing(null)}>Cancel</Button></div>
-        {editing.movement_type === 'issue' && canManageStock && editing.destination && moveTargets(editing).length > 0 && <div className="rounded-lg border p-3 space-y-2"><p className="text-sm font-medium">Picked into the wrong room?</p><p className="text-sm text-muted-foreground">Currently recorded in {editing.destination}. Moving it keeps the quantity and date and uses the reason above.</p><div className="flex flex-wrap gap-2 items-end"><Select value={moveRoom} onValueChange={setMoveRoom}><SelectTrigger className="w-48" aria-label="Move pick to room"><SelectValue placeholder="Choose correct room" /></SelectTrigger><SelectContent>{moveTargets(editing).map(room => <SelectItem key={room} value={room}>{room}</SelectItem>)}</SelectContent></Select><Button variant="outline" disabled={saving||!moveRoom} onClick={()=>void movePick()}>Move to correct room</Button></div></div>}
-        {['receipt','issue'].includes(editing.movement_type) ? <><label className="flex gap-2 items-center text-sm"><input type="checkbox" checked={deleteConfirmed} onChange={e=>setDeleteConfirmed(e.target.checked)} />Remove this entry and reverse its stock movement</label><Button variant="destructive" disabled={saving||!deleteConfirmed} onClick={()=>void editReceipt(true)}>Delete entry</Button></> : <p className="text-sm text-muted-foreground">Counts establish the stock baseline. Correct the quantity; counts cannot be deleted.</p>}
+
+        <div className="flex gap-3"><Button disabled={saving} onClick={()=>void editReceipt(false)}>{saving?'Saving…':'Save correction'}</Button><Button disabled={saving} variant="outline" onClick={()=>setEditing(null)}>Cancel</Button></div>
+        {editing.movement_type === 'issue' && canManageStock && editing.destination && moveTargets(editing).length > 0 && <div className="rounded-lg border p-3 space-y-2"><p className="text-sm font-medium">Picked into the wrong room?</p><p className="text-sm text-muted-foreground">Currently recorded in {editing.destination}. Moving it keeps the quantity and date and uses the reason above.</p><div className="flex flex-wrap gap-2 items-end"><Select value={moveRoom} onValueChange={setMoveRoom}><SelectTrigger className="w-48" aria-label="Move pick to room"><SelectValue placeholder="Choose correct room" /></SelectTrigger><SelectContent>{moveTargets(editing).map(room => <SelectItem key={room} value={room}>{room}</SelectItem>)}</SelectContent></Select><Button variant="outline" disabled={saving||!moveRoom} onClick={()=>void movePick()}>{saving?'Updating…':'Move to correct room'}</Button></div></div>}
+        {['receipt','issue'].includes(editing.movement_type) ? <><label className="flex gap-2 items-center text-sm"><input type="checkbox" checked={deleteConfirmed} onChange={e=>setDeleteConfirmed(e.target.checked)} />Remove this entry and reverse its stock movement</label><Button variant="destructive" disabled={saving||!deleteConfirmed} onClick={()=>void editReceipt(true)}>{saving?'Updating…':'Delete entry'}</Button></> : <p className="text-sm text-muted-foreground">Counts establish the stock baseline. Correct the quantity; counts cannot be deleted.</p>}
       </section>}
       {view === 'access' && canManageStaff && <section className="dashboard-card p-5 space-y-3"><h3 className="font-bold text-lg">Staff login access</h3><p className="text-sm text-muted-foreground">Staff create and confirm their own login on the sign-in page. Approve their email here to allow daily picks and usage. Staff cannot add, edit or delete store collections.</p><label>Staff email<Input type="email" value={staffEmail} onChange={e=>setStaffEmail(e.target.value)} placeholder="Staff member’s personal email" /></label><div className="flex gap-3"><Button disabled={staffAccessSaving||!staffEmail.trim()} onClick={()=>void setStaffAccess(true)}>Approve staff login</Button><Button variant="outline" disabled={staffAccessSaving||!staffEmail.trim()} onClick={()=>void setStaffAccess(false)}>Remove staff access</Button></div></section>}
       {view === 'balances' && <>
@@ -282,6 +292,7 @@ Cancel keeps the existing record.`)) return;
       </section>}
         <div className="flex items-center gap-3"><Button variant="outline" disabled={loading || historyPage === 0} onClick={() => {setHistoryPage(page => page-1);setEditing(null);}}>Newer entries</Button><span className="text-sm text-muted-foreground">Page {historyPage+1}</span><Button variant="outline" disabled={loading || (historyLocation === 'store' ? movements : roomMovements).length < 50} onClick={() => {setHistoryPage(page => page+1);setEditing(null);}}>Older entries</Button></div>
       </>}
+    </fieldset><ActionFeedback busy={saving||staffAccessSaving} busyLabel="Saving stock changes…" error={error} success={notice} onDismiss={()=>{setError('');setNotice('');}}/>
     </main>
   </div>;
 }
